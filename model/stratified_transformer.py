@@ -467,7 +467,7 @@ class Stratified(nn.Module):
         self.init_weights()
 
     def forward(self, feats, xyz, offset, batch, neighbor_idx):
-        print(f"Model input feats shape: {feats.shape} (expected channel: {self.stem_layer[0].kpconv.in_channels})")
+        # print(f"Model input feats shape: {feats.shape} (expected channel: {self.stem_layer[0].kpconv.in_channels})")
         feats_stack = []
         xyz_stack = []
         offset_stack = []
