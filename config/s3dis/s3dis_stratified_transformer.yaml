@@ -1,7 +1,7 @@
 DATA:
   data_name: my_dataset
-  data_root:
-  test_area: 5
+  data_root: "/root/autodl-tmp/data/data_s3dis_normal"
+  data_root_val: "/root/autodl-tmp/data/data_s3dis_normal"
   classes: 3
   fea_dim: 6
   voxel_size: 0.04
@@ -47,7 +47,7 @@ TRAIN:
   use_amp: True
   optimizer: AdamW 
   ignore_label: 255
-  train_gpu: [0, 1, 2, 3]
+  train_gpu: [0]
   workers: 16  # data loader workers
   batch_size: 8  # batch size for training
   batch_size_val: 4  # batch size for validation during training, memory and speed tradeoff
@@ -75,12 +75,10 @@ Distributed:
   rank: 0
 
 TEST:
-  test_list: dataset/s3dis/list/val5.txt
-  test_list_full: dataset/s3dis/list/val5_full.txt
   split: val  # split in [train, val and test]
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 4
   model_path: runs/s3dis_stratified_transformer/best.pth
   save_folder: runs/s3dis_stratified_transformer/results
-  names_path: data/s3dis/s3dis_names.txt
+
