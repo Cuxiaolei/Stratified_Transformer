@@ -152,15 +152,27 @@ def data_prepare():
     elif args.data_name == 'scannetv2':
         data_list = sorted(os.listdir(args.data_root_val))
         data_list = [item[:-4] for item in data_list if '.pth' in item]
-        # data_list = sorted(glob.glob(os.path.join(args.data_root_val, "*.pth")))
+    # ---------------------- 新增：my_dataset 分支 ----------------------
+    elif args.data_name == 'my_dataset':
+        # 读取 val_scenes.txt 划分文件（与训练集逻辑一致）
+        val_split_file = os.path.join(args.data_root, 'val_scenes.txt')
+        if not os.path.exists(val_split_file):
+            raise FileNotFoundError(f"my_dataset 验证集划分文件 {val_split_file} 不存在！")
+        # 加载样本路径列表（每行是 .npy 文件的相对路径，如 "merged/sample_1.npy"）
+        with open(val_split_file, 'r') as f:
+            data_list = [line.strip() for line in f.readlines()]
+        # 提取样本名称（去掉路径和后缀，用于后续保存预测结果，如 "sample_1"）
+        data_list = [os.path.splitext(os.path.basename(path))[0] for path in data_list]
+    # -------------------------------------------------------------------
     else:
-        raise Exception('dataset not supported yet'.format(args.data_name))
+        raise Exception('dataset {} not supported yet'.format(args.data_name))
     print("Totally {} samples in val set.".format(len(data_list)))
     return data_list
 
 
 def data_load(data_name, transform):
-
+    # data_name：从 data_prepare 传来的样本名称（如 "sample_1"）
+    # 需拼接回完整 .npy 路径（与 val_scenes.txt 中的路径一致）
     if args.data_name == 's3dis':
         data_path = os.path.join(args.data_root, data_name + '.npy')
         data = np.load(data_path)  # xyzrgbl, N*7
@@ -169,11 +181,36 @@ def data_load(data_name, transform):
         data_path = os.path.join(args.data_root_val, data_name + '.pth')
         data = torch.load(data_path)  # xyzrgbl, N*7
         coord, feat, label = data[0], data[1], data[2]
-        # print("type(coord): {}".format(type(coord)))
+    # ---------------------- 新增：my_dataset 分支 ----------------------
+    elif args.data_name == 'my_dataset':
+        # 1. 拼接完整数据路径（需与 val_scenes.txt 中的路径匹配）
+        # 示例：val_scenes.txt 中是 "merged/sample_1.npy"，则拼接为 args.data_root/merged/sample_1.npy
+        # 先从 val_scenes.txt 重新读取完整路径（避免 data_name 仅含文件名）
+        val_split_file = os.path.join(args.data_root, 'val_scenes.txt')
+        with open(val_split_file, 'r') as f:
+            full_paths = [line.strip() for line in f.readlines()]
+        # 根据 data_name（如 "sample_1"）找到对应的完整路径
+        data_path = None
+        for path in full_paths:
+            if data_name == os.path.splitext(os.path.basename(path))[0]:
+                data_path = os.path.join(args.data_root, path)
+                break
+        if data_path is None or not os.path.exists(data_path):
+            raise FileNotFoundError(f"未找到 my_dataset 样本 {data_name}，路径 {data_path} 无效！")
 
+        # 2. 加载 10 通道数据并提取维度
+        data = np.load(data_path)  # shape: [N, 10]（xyz3 + rgb3 + 法向量3 + label1）
+        coord = data[:, 0:3]  # 坐标：[N, 3]
+        feat = data[:, 3:9]  # 特征：[N, 6]（rgb3 + 法向量3）
+        label = data[:, 9]  # 标签：[N]（整数类型）
+    # -------------------------------------------------------------------
+
+    # 数据增强（验证集增强如旋转，与训练集逻辑一致）
     if transform:
+        # 注意：需确保 transform 函数支持 6 维 feat（若增强仅影响 coord，可保持不变）
         coord, feat = transform(coord, feat)
 
+    # 体素化（复用原有逻辑，与训练集 voxel_size 保持一致）
     idx_data = []
     if args.voxel_size:
         coord_min = np.min(coord, 0)
@@ -189,12 +226,22 @@ def data_load(data_name, transform):
 
 
 def input_normalize(coord, feat):
+    # 坐标归一化（所有数据集通用）
     coord_min = np.min(coord, 0)
     coord -= coord_min
-    if args.data_name == 's3dis':
-        feat = feat / 255.
-    return coord, feat
 
+    # 特征归一化（按数据集适配）
+    if args.data_name == 's3dis':
+        feat = feat / 255.  # S3DIS：rgb 0-255 → 0-1
+    # ---------------------- 新增：my_dataset 分支 ----------------------
+    elif args.data_name == 'my_dataset':
+        # 假设：rgb 是 0-255 范围，法向量已归一化（若未归一化，需加 feat[:,3:6] = feat[:,3:6]/np.linalg.norm(feat[:,3:6], axis=1, keepdims=True)）
+        feat[:, 0:3] = feat[:, 0:3] / 255.  # rgb 归一化到 0-1
+        # 法向量若未归一化，添加以下代码：
+        # norm = np.linalg.norm(feat[:, 3:6], axis=1, keepdims=True)
+        # feat[:, 3:6] = feat[:, 3:6] / (norm + 1e-8)  # 避免除以0
+    # -------------------------------------------------------------------
+    return coord, feat
 
 def test(model, criterion, names, test_transform_set):
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')

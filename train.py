@@ -18,6 +18,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from tensorboardX import SummaryWriter
 
 from util import dataset, config
+from util.my_dataset import MyDataset
 from util.s3dis import S3DIS
 from util.scannet_v2 import Scannetv2
 from util.common_util import AverageMeter, intersectionAndUnionGPU, find_free_port, poly_learning_rate, smooth_loss
@@ -227,6 +228,35 @@ def main_worker(gpu, ngpus_per_node, argss):
             logger.info("scannet. train_split: {}".format(train_split))
 
         train_data = Scannetv2(split=train_split, data_root=args.data_root, voxel_size=args.voxel_size, voxel_max=args.voxel_max, transform=train_transform, shuffle_index=True, loop=args.loop)
+    # ---------------------- 新增：my_dataset 分支 ----------------------
+    elif args.data_name == 'my_dataset':
+        # 1. 数据增强配置（根据你的数据需求调整，若不需要可设为 None）
+        train_transform = None
+        if args.aug:  # 若配置文件中 args.aug=True，启用数据增强
+            # 注意：需确保 transform 工具支持你的 10 通道数据（或仅对 coord/feat 操作）
+            # 示例增强（根据你的 data_prepare 函数支持的操作调整）
+            train_transform = transform.Compose([
+                transform.RandomRotate(along_z=args.get('rotate_along_z', True)),  # 沿Z轴旋转（仅影响coord）
+                transform.RandomScale(scale_low=args.get('scale_low', 0.8), scale_high=args.get('scale_high', 1.2)),
+                # 缩放（仅影响coord）
+                transform.RandomJitter(sigma=args.get('jitter_sigma', 0.01), clip=args.get('jitter_clip', 0.05))
+                # 坐标抖动（仅影响coord）
+                # 若你的颜色/法向量需要增强，可添加对应 transform（如 RandomDropColor）
+            ])
+            if main_process():
+                logger.info("my_dataset: 启用数据增强")
+                logger.info(f"增强参数：rotate_along_z={args.get('rotate_along_z', True)}, "
+                            f"scale=[{args.get('scale_low', 0.8)}, {args.get('scale_high', 1.2)}], "
+                            f"jitter=[sigma={args.get('jitter_sigma', 0.01)}, clip={args.get('jitter_clip', 0.05)}]")
+        train_data = MyDataset(
+            split='train',  # 训练集划分（对应 train_scenes.txt）
+            data_root=args.data_root,  # 数据集根路径（从配置文件读取，需包含 train_scenes.txt 和 merged 文件夹）
+            transform=train_transform,  # 数据增强（上述定义的 train_transform）
+            voxel_size=args.voxel_size,  # 体素大小（从配置文件读取，传递给 data_prepare）
+            voxel_max=args.voxel_max,  # 最大点数量（从配置文件读取，传递给 data_prepare）
+            shuffle_index=args.get('shuffle_index', False),  # 是否打乱点顺序（配置文件可配置，默认False）
+            loop=args.loop  # 数据集循环次数（多卡训练用，从配置文件读取）
+        )
     else:
         raise ValueError("The dataset {} is not supported.".format(args.data_name))
 
@@ -244,6 +274,17 @@ def main_worker(gpu, ngpus_per_node, argss):
         val_data = S3DIS(split='val', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=800000, transform=val_transform)
     elif args.data_name == 'scannetv2':
         val_data = Scannetv2(split='val', data_root=args.data_root, voxel_size=args.voxel_size, voxel_max=800000, transform=val_transform)
+    elif args.data_name == 'my_dataset':
+        # 验证集加载（与训练集逻辑一致，仅 split 改为 'val'）
+        val_data = MyDataset(
+            split='val',  # 对应 val_scenes.txt 划分文件
+            data_root=args.data_root,  # 同训练集根路径
+            transform=val_transform,  # 验证集通常不增强，val_transform 一般为 None
+            voxel_size=args.voxel_size,  # 与训练集保持一致的体素大小
+            voxel_max=800000,  # 验证集可放宽点数量限制（如800000，避免过度下采样影响评估）
+            shuffle_index=False,  # 验证集无需打乱点顺序（保持原始顺序便于可视化）
+            loop=1  # 验证集无需循环（仅跑1遍）
+        )
     else:
         raise ValueError("The dataset {} is not supported.".format(args.data_name))
 
