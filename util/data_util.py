@@ -122,7 +122,7 @@ def load_kitti_label(label_path, remap_lut):
 
 def data_prepare(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None, shuffle_index=False):
     if transform:
-        coord, feat, label = transform(coord, feat, label)
+        coord, feat = transform(coord, feat)
     if voxel_size:
         coord_min = np.min(coord, 0)
         coord -= coord_min
