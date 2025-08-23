@@ -1,16 +1,16 @@
 DATA:
-  data_name: my_dataset
-  data_root:
+  data_name: s3dis
+  data_root: # Fill in the pre-processed data path (which contains the .npy files)
   test_area: 5
-  classes: 3
+  classes: 13
   fea_dim: 6
   voxel_size: 0.04
   voxel_max: 80000
-  loop: 6
+  loop: 30
 
 TRAIN:
   #arch
-  arch: stratified_transformer
+  arch: swin3d_transformer
   stem_transformer: True
   use_xyz: True
   sync_bn: True  # adopt sync_bn or not
@@ -18,7 +18,6 @@ TRAIN:
   rel_key: True
   rel_value: True
   quant_size: 0.01
-  downsample_scale: 8
   num_layers: 4 
   patch_size: 1 
   window_size: 4
@@ -62,7 +61,7 @@ TRAIN:
   manual_seed: 123
   print_freq: 1
   save_freq: 1
-  save_path: runs/s3dis_stratified_transformer
+  save_path: runs/s3dis_swin3d_transformer
   weight:  # path to initial weight (default: none)
   resume:  # path to latest checkpoint (default: none)
   evaluate: True  # evaluate on validation set, extra gpu memory needed and small batch_size_val is recommend
@@ -81,6 +80,6 @@ TEST:
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 4
-  model_path: runs/s3dis_stratified_transformer/best.pth
-  save_folder: runs/s3dis_stratified_transformer/results
+  model_path: # Fill the path of the trained .pth file model
+  save_folder: # Fill the path to store the .npy files for each scene
   names_path: data/s3dis/s3dis_names.txt

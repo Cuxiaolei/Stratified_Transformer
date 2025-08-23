@@ -1,12 +1,12 @@
 DATA:
-  data_name: my_dataset
-  data_root:
+  data_name: s3dis
+  data_root: # Fill in the pre-processed data path (which contains the .npy files)
   test_area: 5
-  classes: 3
+  classes: 13
   fea_dim: 6
   voxel_size: 0.04
   voxel_max: 80000
-  loop: 6
+  loop: 30
 
 TRAIN:
   #arch
@@ -81,6 +81,6 @@ TEST:
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 4
-  model_path: runs/s3dis_stratified_transformer/best.pth
-  save_folder: runs/s3dis_stratified_transformer/results
+  model_path: # Fill the path of the trained .pth file model
+  save_folder: # Fill the path to store the .npy files for each scene
   names_path: data/s3dis/s3dis_names.txt
