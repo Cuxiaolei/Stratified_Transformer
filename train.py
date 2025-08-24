@@ -203,21 +203,21 @@ def main_worker(gpu, ngpus_per_node, argss):
         # 训练指标CSV
         train_csv_path = os.path.join(args.save_path, 'train_metrics.csv')
         with open(train_csv_path, 'w', newline='') as f:
-            writer = csv.writer(f)
+            csv_writer = csv.writer(f)
             # 表头：epoch + 整体指标 + 每类iou + 每类acc
             header = ['epoch', 'loss_train', 'mIoU_train', 'mAcc_train', 'allAcc_train']
             for i in range(args.classes):
                 header.extend([f'class_{i}_iou', f'class_{i}_acc'])
-            writer.writerow(header)
+            csv_writer.writerow(header)
 
         # 验证指标CSV
         val_csv_path = os.path.join(args.save_path, 'val_metrics.csv')
         with open(val_csv_path, 'w', newline='') as f:
-            writer = csv.writer(f)
+            csv_writer = csv.writer(f)
             header = ['epoch', 'loss_val', 'mIoU_val', 'mAcc_val', 'allAcc_val']
             for i in range(args.classes):
                 header.extend([f'class_{i}_iou', f'class_{i}_acc'])
-            writer.writerow(header)
+            csv_writer.writerow(header)
 
 
     if args.data_name == 's3dis':

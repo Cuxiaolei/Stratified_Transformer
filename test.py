@@ -408,12 +408,12 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
         # 新增：保存测试指标到CSV
         test_csv_path = os.path.join(args.save_folder, 'test_metrics.csv')
         with open(test_csv_path, 'w', newline='') as f:
-            writer = csv.writer(f)
+            csv_writer = csv.writer(f)
             # 表头：整体指标 + 每类iou + 每类acc + 每类名称
             header = ['mIoU', 'mAcc', 'allAcc']
             for i in range(args.classes):
                 header.extend([f'class_{i}_iou', f'class_{i}_acc', f'class_{i}_name'])
-            writer.writerow(header)
+            csv_writer.writerow(header)
 
             # 行数据：整体指标 + 每类iou + 每类acc + 每类名称
             row = [mIoU, mAcc, allAcc]
@@ -421,7 +421,7 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
                 row.append(iou_class[i])
                 row.append(accuracy_class[i])
                 row.append(names[i] if i < len(names) else f'class_{i}')  # 类别名称
-            writer.writerow(row)
+            csv_writer.writerow(row)
     logger.info('<<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<')
 
 
