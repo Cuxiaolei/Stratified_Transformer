@@ -1,5 +1,5 @@
 DATA:
-  data_name: s3dis
+  data_name: my_dataset
   data_root: "/root/autodl-tmp/data/data_s3dis_normal"
   data_root_val: "/root/autodl-tmp/data/data_s3dis_normal"
   classes: 3
