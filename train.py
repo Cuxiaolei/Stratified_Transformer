@@ -395,19 +395,43 @@ def train(train_loader, model, criterion, optimizer, epoch, scaler, scheduler):
     for i, (coord, feat, target, offset) in enumerate(train_loader):  # (n, 3), (n, c), (n), (b)
         data_time.update(time.time() - end)
 
-        offset_ = offset.clone()
-        offset_[1:] = offset_[1:] - offset_[:-1]
-        batch = torch.cat([torch.tensor([ii]*o) for ii,o in enumerate(offset_)], 0).long()
+        # 修复：正确计算每个样本的点数并生成 batch 索引
+        batch_size = len(offset)
+        num_points_per_sample = []
+        for j in range(batch_size):
+            if j == 0:
+                num_points = offset[j]
+            else:
+                num_points = offset[j] - offset[j - 1]
+            num_points_per_sample.append(num_points)
+
+        # 生成与总点数匹配的 batch 索引
+        batch = []
+        for idx in range(batch_size):
+            batch.extend([idx] * num_points_per_sample[idx])
+        batch = torch.tensor(batch, dtype=torch.long)
 
         sigma = 1.0
         radius = 2.5 * args.grid_size * sigma
-        neighbor_idx = tp.ball_query(radius, args.max_num_neighbors, coord, coord, mode="partial_dense", batch_x=batch, batch_y=batch)[0]
-    
-        coord, feat, target, offset = coord.cuda(non_blocking=True), feat.cuda(non_blocking=True), target.cuda(non_blocking=True), offset.cuda(non_blocking=True)
+        # 确保调用 ball_query 前 coord 和 batch 长度一致
+        assert len(coord) == len(batch), f"coord 长度 {len(coord)} 与 batch 长度 {len(batch)} 不匹配"
+        neighbor_idx = tp.ball_query(
+            radius,
+            args.max_num_neighbors,
+            coord,
+            coord,
+            mode="partial_dense",
+            batch_x=batch,
+            batch_y=batch
+        )[0]
+
+        # 移动数据到 GPU（保持原有逻辑）
+        coord, feat, target, offset = coord.cuda(non_blocking=True), feat.cuda(non_blocking=True), target.cuda(
+            non_blocking=True), offset.cuda(non_blocking=True)
         batch = batch.cuda(non_blocking=True)
         neighbor_idx = neighbor_idx.cuda(non_blocking=True)
         assert batch.shape[0] == feat.shape[0]
-        
+
         if args.concat_xyz:
             feat = torch.cat([feat, coord], 1)
 
@@ -418,9 +442,9 @@ def train(train_loader, model, criterion, optimizer, epoch, scaler, scheduler):
             if target.shape[-1] == 1:
                 target = target[:, 0]  # for cls
             loss = criterion(output, target)
-            
+
         optimizer.zero_grad()
-        
+
         if use_amp:
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -471,7 +495,7 @@ def train(train_loader, model, criterion, optimizer, epoch, scaler, scheduler):
                         'Remain {remain_time} '
                         'Loss {loss_meter.val:.4f} '
                         'Lr: {lr} '
-                        'Accuracy {accuracy:.4f}.'.format(epoch+1, args.epochs, i + 1, len(train_loader),
+                        'Accuracy {accuracy:.4f}.'.format(epoch + 1, args.epochs, i + 1, len(train_loader),
                                                           batch_time=batch_time, data_time=data_time,
                                                           remain_time=remain_time,
                                                           loss_meter=loss_meter,
@@ -489,7 +513,9 @@ def train(train_loader, model, criterion, optimizer, epoch, scaler, scheduler):
     mAcc = np.mean(accuracy_class)
     allAcc = sum(intersection_meter.sum) / (sum(target_meter.sum) + 1e-10)
     if main_process():
-        logger.info('Train result at epoch [{}/{}]: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(epoch+1, args.epochs, mIoU, mAcc, allAcc))
+        logger.info(
+            'Train result at epoch [{}/{}]: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(epoch + 1, args.epochs, mIoU,
+                                                                                           mAcc, allAcc))
     return loss_meter.avg, mIoU, mAcc, allAcc
 
 
