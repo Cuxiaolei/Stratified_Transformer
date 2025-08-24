@@ -71,6 +71,11 @@ class MyDataset(Dataset):
         else:
             raise TypeError(f"不支持的坐标数据类型: {type(coord)}")
 
+        if isinstance(coord, np.ndarray):
+            coord = torch.from_numpy(coord).float()
+        if isinstance(feat, np.ndarray):
+            feat = torch.from_numpy(feat).float()
+
         return coord, feat, label
 
     def __len__(self):
