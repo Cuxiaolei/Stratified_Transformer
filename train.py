@@ -254,7 +254,7 @@ def main_worker(gpu, ngpus_per_node, argss):
             transform=train_transform,  # 数据增强（上述定义的 train_transform）
             voxel_size=args.voxel_size,  # 体素大小（从配置文件读取，传递给 data_prepare）
             voxel_max=args.voxel_max,  # 最大点数量（从配置文件读取，传递给 data_prepare）
-            shuffle_index=args.shuffle_index,  # 是否打乱点顺序（配置文件可配置）
+            shuffle_index=args.shuffle,  # 是否打乱点顺序（配置文件可配置）
             loop=args.loop  # 数据集循环次数（多卡训练用，从配置文件读取）
         )
     else:
@@ -282,7 +282,7 @@ def main_worker(gpu, ngpus_per_node, argss):
             transform=val_transform,  # 验证集通常不增强，val_transform 一般为 None
             voxel_size=args.voxel_size,  # 与训练集保持一致的体素大小
             voxel_max=args.voxel_max,  # 验证集可放宽点数量限制（如80000，避免过度下采样影响评估）
-            shuffle_index=args.shuffle_index,  # 验证集无需打乱点顺序（保持原始顺序便于可视化）
+            shuffle_index=args.shuffle,  # 验证集无需打乱点顺序（保持原始顺序便于可视化）
             loop=1  # 验证集无需循环（仅跑1遍）
         )
     else:
