@@ -47,7 +47,10 @@ def intersectionAndUnion(output, target, K, ignore_index=255):
     assert (output.ndim in [1, 2, 3])
     assert output.shape == target.shape
     output = output.reshape(output.size).copy()
-    target = target.reshape(target.size)
+    if isinstance(target, torch.Tensor):
+        target = target.reshape(target.size())  # Tensor用size()方法
+    else:
+        target = target.reshape(target.size)  # NumPy数组用size属性
     output[np.where(target == ignore_index)[0]] = ignore_index
     intersection = output[np.where(output == target)[0]]
     area_intersection, _ = np.histogram(intersection, bins=np.arange(K+1))
