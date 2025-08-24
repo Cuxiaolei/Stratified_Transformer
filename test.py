@@ -290,7 +290,7 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
         else:
             # 3. 直接加载原始数据（不进行增强）
             coord, feat, label = dataset[sample_idx]  # 调用MyDataset的__getitem__
-            label = label.astype(np.int64)  # 确保标签类型正确
+            label = label.type(torch.int64)  # Tensor类型转换
 
             # 4. 处理点云分块（如果需要，根据voxel_max拆分）
             idx_data = []
