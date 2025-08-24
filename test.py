@@ -274,12 +274,11 @@ def test(model, criterion, names, test_transform):  # 修改参数，仅接收�
 
     # 1. 创建单一数据集（不使用数据增强，仅必要预处理）
     dataset = create_test_dataset(test_transform)  # 单一数据集
-    sample_names = dataset.sample_names
     total_samples = len(dataset)
 
     # 2. 遍历每个样本
     for sample_idx in range(total_samples):
-        item = sample_names[sample_idx]
+        item = names[sample_idx]
         end = time.time()
         pred_save_path = os.path.join(args.save_folder, f'{item}_{args.epoch}_pred.npy')
         label_save_path = os.path.join(args.save_folder, f'{item}_{args.epoch}_label.npy')
