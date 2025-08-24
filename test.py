@@ -93,7 +93,7 @@ def main():
     #model = torch.nn.DataParallel(model.cuda())
     logger.info(model)
     criterion = nn.CrossEntropyLoss(ignore_index=args.ignore_label).cuda()
-    names = [line.rstrip('\n') for line in open(args.names_path)]
+    names = ['铁塔', '背景', '导线']
     if os.path.isfile(args.model_path):
         logger.info("=> loading checkpoint '{}'".format(args.model_path))
         checkpoint = torch.load(args.model_path)
