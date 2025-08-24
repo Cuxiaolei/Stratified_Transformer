@@ -83,7 +83,7 @@ def main():
             args.window_sizes, args.up_k, args.grid_sizes, args.quant_sizes, rel_query=args.rel_query, \
             rel_key=args.rel_key, rel_value=args.rel_value, drop_path_rate=args.drop_path_rate, \
             concat_xyz=args.concat_xyz, num_classes=args.classes, \
-            ratio=args.ratio, k=args.k, prev_grid_size=args.grid_size, sigma=1.0, num_layers=args.num_layers, stem_transformer=args.stem_transformer)
+            ratio=args.ratio, k=args.k, prev_grid_size=args.grid_size, sigma=1.0, num_layers=args.num_layers, stem_transformer=args.stem_transformer, in_channels=args.in_channels)
 
     else:
         raise Exception('architecture {} not supported yet'.format(args.arch))

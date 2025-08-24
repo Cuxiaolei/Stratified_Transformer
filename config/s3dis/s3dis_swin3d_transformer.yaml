@@ -4,6 +4,7 @@ DATA:
   data_root_val: "/root/autodl-tmp/data/data_s3dis_normal"
   classes: 3
   fea_dim: 6
+  in_channels: 6
   voxel_size: 0.04
   voxel_max: 80000
   loop: 30
@@ -74,12 +75,9 @@ Distributed:
   rank: 0
 
 TEST:
-  test_list: dataset/s3dis/list/val5.txt
-  test_list_full: dataset/s3dis/list/val5_full.txt
   split: val  # split in [train, val and test]
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 4
   model_path: runs/s3dis_swin3d_transformer/best.pth
   save_folder: runs/s3dis_swin3d_transformer/results
-  names_path: data/s3dis/s3dis_names.txt

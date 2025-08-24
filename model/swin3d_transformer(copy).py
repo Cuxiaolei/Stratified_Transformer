@@ -364,23 +364,19 @@ class KPConvResBlock(nn.Module):
 class Swin(nn.Module):
     def __init__(self, depths, channels, num_heads, window_sizes, up_k, \
             grid_sizes, quant_sizes, rel_query=True, rel_key=False, rel_value=False, drop_path_rate=0.2, \
-            num_layers=4, concat_xyz=False, num_classes=13, ratio=0.25, k=16, prev_grid_size=0.04, sigma=1.0, stem_transformer=False, in_channels=6):
+            num_layers=4, concat_xyz=False, num_classes=13, ratio=0.25, k=16, prev_grid_size=0.04, sigma=1.0, stem_transformer=False):
         super().__init__()
         
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
         if stem_transformer:
-            # 原代码：3 if not concat_xyz else 6 → 改为 in_channels
             self.stem_layer = nn.ModuleList([
-                KPConvSimpleBlock(in_channels, channels[0], prev_grid_size, sigma=sigma)
+                KPConvSimpleBlock(3 if not concat_xyz else 6, channels[0], prev_grid_size, sigma=sigma)
             ])
             self.layer_start = 0
         else:
-            # ---------------------- 修改2：stem_transformer=False 时的前两层 ----------------------
             self.stem_layer = nn.ModuleList([
-                # 第一层：原 3 if not concat_xyz else 6 → 改为 in_channels
-                KPConvSimpleBlock(in_channels, channels[0], prev_grid_size, sigma=sigma),
-                # 第二层：输入通道=前一层输出通道（channels[0]），无需修改
+                KPConvSimpleBlock(3 if not concat_xyz else 6, channels[0], prev_grid_size, sigma=sigma),
                 KPConvResBlock(channels[0], channels[0], prev_grid_size, sigma=sigma)
             ])
             self.downsample = TransitionDown(channels[0], channels[1], ratio, k)
