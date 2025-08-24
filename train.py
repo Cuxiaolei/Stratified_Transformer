@@ -16,7 +16,8 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 import torch.optim.lr_scheduler as lr_scheduler
 from tensorboardX import SummaryWriter
-
+import csv  # 新增：用于CSV操作
+from datetime import datetime
 from util import dataset, config
 from util.my_dataset import MyDataset
 from util.s3dis import S3DIS
@@ -197,6 +198,28 @@ def main_worker(gpu, ngpus_per_node, argss):
             if main_process():
                 logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
+        # 新增：初始化训练和验证指标CSV文件（仅主进程执行）
+    if main_process():
+        # 训练指标CSV
+        train_csv_path = os.path.join(args.save_path, 'train_metrics.csv')
+        with open(train_csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            # 表头：epoch + 整体指标 + 每类iou + 每类acc
+            header = ['epoch', 'loss_train', 'mIoU_train', 'mAcc_train', 'allAcc_train']
+            for i in range(args.classes):
+                header.extend([f'class_{i}_iou', f'class_{i}_acc'])
+            writer.writerow(header)
+
+        # 验证指标CSV
+        val_csv_path = os.path.join(args.save_path, 'val_metrics.csv')
+        with open(val_csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            header = ['epoch', 'loss_val', 'mIoU_val', 'mAcc_val', 'allAcc_val']
+            for i in range(args.classes):
+                header.extend([f'class_{i}_iou', f'class_{i}_acc'])
+            writer.writerow(header)
+
+
     if args.data_name == 's3dis':
         train_transform = None
         if args.aug:
@@ -261,7 +284,7 @@ def main_worker(gpu, ngpus_per_node, argss):
         raise ValueError("The dataset {} is not supported.".format(args.data_name))
 
     if main_process():
-            logger.info("train_data samples: '{}'".format(len(train_data)))
+        logger.info("train_data samples: '{}'".format(len(train_data)))
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_data)
     else:
@@ -357,7 +380,8 @@ def main_worker(gpu, ngpus_per_node, argss):
 
         is_best = False
         if args.evaluate and (epoch_log % args.eval_freq == 0):
-            loss_val, mIoU_val, mAcc_val, allAcc_val = validate(val_loader, model, criterion)
+            # 新增：传递当前epoch_log到validate函数
+            loss_val, mIoU_val, mAcc_val, allAcc_val = validate(val_loader, model, criterion, epoch_log)
 
             if main_process():
                 writer.add_scalar('loss_val', loss_val, epoch_log)
@@ -516,10 +540,23 @@ def train(train_loader, model, criterion, optimizer, epoch, scaler, scheduler):
         logger.info(
             'Train result at epoch [{}/{}]: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(epoch + 1, args.epochs, mIoU,
                                                                                            mAcc, allAcc))
+
+    # 新增：写入训练指标到CSV（仅主进程执行）
+    if main_process():
+        train_csv_path = os.path.join(args.save_path, 'train_metrics.csv')
+        with open(train_csv_path, 'a', newline='') as f:
+            csv_writer = csv.writer(f)
+            # 行数据：epoch + 整体指标 + 每类iou + 每类acc
+            row = [epoch + 1, loss_meter.avg, mIoU, mAcc, allAcc]
+            for i in range(args.classes):
+                row.append(iou_class[i])  # 第i类iou
+                row.append(accuracy_class[i])  # 第i类acc
+            csv_writer.writerow(row)
+
     return loss_meter.avg, mIoU, mAcc, allAcc
 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model, criterion, epoch_log):
     if main_process():
         logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     batch_time = AverageMeter()
@@ -599,7 +636,19 @@ def validate(val_loader, model, criterion):
         for i in range(args.classes):
             logger.info('Class_{} Result: iou/accuracy {:.4f}/{:.4f}.'.format(i, iou_class[i], accuracy_class[i]))
         logger.info('<<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<')
-    
+
+    # 新增：写入验证指标到CSV（仅主进程执行）
+    if main_process():
+        val_csv_path = os.path.join(args.save_path, 'val_metrics.csv')
+        with open(val_csv_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            # 行数据：当前验证的epoch + 整体指标 + 每类iou + 每类acc
+            # 注意：epoch_log需要从调用处传入，因此需要修改函数参数
+            row = [epoch_log, loss_meter.avg, mIoU, mAcc, allAcc]
+            for i in range(args.classes):
+                row.append(iou_class[i])
+                row.append(accuracy_class[i])
+            writer.writerow(row)
     return loss_meter.avg, mIoU, mAcc, allAcc
 
 
