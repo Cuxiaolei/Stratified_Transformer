@@ -18,7 +18,7 @@ from util.common_util import AverageMeter, intersectionAndUnion, check_makedirs
 from util.voxelize import voxelize
 import torch_points_kernels as tp
 import torch.nn.functional as F
-
+from util.my_dataset import MyDataset
 random.seed(123)
 np.random.seed(123)
 
@@ -205,10 +205,10 @@ def data_load(data_name, transform):
         label = data[:, 9]  # 标签：[N]（整数类型）
     # -------------------------------------------------------------------
 
-    # 数据增强（验证集增强如旋转，与训练集逻辑一致）
-    if transform:
-        # 注意：需确保 transform 函数支持 6 维 feat（若增强仅影响 coord，可保持不变）
-        coord, feat = transform(coord, feat)
+    # # 数据增强（验证集增强如旋转，与训练集逻辑一致）
+    # if transform:
+    #     # 注意：需确保 transform 函数支持 6 维 feat（若增强仅影响 coord，可保持不变）
+    #     coord, feat = transform(coord, feat)
 
     # 体素化（复用原有逻辑，与训练集 voxel_size 保持一致）
     idx_data = []
@@ -242,114 +242,137 @@ def input_normalize(coord, feat):
         # 法向量保持原始值，不做归一化
     return coord, feat
 
+def create_test_dataset(transform):
+    """创建测试数据集（复用MyDataset）"""
+    if args.data_name == 'my_dataset':
+        return MyDataset(
+            split='test',  # 对应test_scenes.txt
+            data_root=args.data_root,
+            transform=transform,  # 传入当前增强策略
+            voxel_size=args.voxel_size,  # 与训练保持一致
+            voxel_max=args.voxel_max,  # 与训练保持一致
+            shuffle_index=True,
+            loop=1  # 测试集仅遍历1次
+        )
+    else:
+        raise Exception(f'dataset {args.data_name} not supported yet')
 
-def test(model, criterion, names, test_transform_set):
+
+
+# test.py (不进行数据增强的版本)
+def test(model, criterion, names, test_transform):  # 修改参数，仅接收单一transform
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     batch_time = AverageMeter()
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
     target_meter = AverageMeter()
-    args.batch_size_test = 5
+    args.batch_size_test = 1  # 点云数据通常单样本加载
     model.eval()
 
     check_makedirs(args.save_folder)
     pred_save, label_save = [], []
-    data_list = data_prepare()
-    for idx, item in enumerate(data_list):
+
+    # 1. 创建单一数据集（不使用数据增强，仅必要预处理）
+    dataset = create_test_dataset(test_transform)  # 单一数据集
+    sample_names = dataset.sample_names
+    total_samples = len(dataset)
+
+    # 2. 遍历每个样本
+    for sample_idx in range(total_samples):
+        item = sample_names[sample_idx]
         end = time.time()
-        pred_save_path = os.path.join(args.save_folder, '{}_{}_pred.npy'.format(item, args.epoch))
-        label_save_path = os.path.join(args.save_folder, '{}_{}_label.npy'.format(item, args.epoch))
-        
+        pred_save_path = os.path.join(args.save_folder, f'{item}_{args.epoch}_pred.npy')
+        label_save_path = os.path.join(args.save_folder, f'{item}_{args.epoch}_label.npy')
+
         if os.path.isfile(pred_save_path) and os.path.isfile(label_save_path):
-            logger.info('{}/{}: {}, loaded pred and label.'.format(idx + 1, len(data_list), item))
+            logger.info(f'{sample_idx + 1}/{total_samples}: {item}, 已加载现有预测结果')
             pred, label = np.load(pred_save_path), np.load(label_save_path)
         else:
-            # ensemble output
-            pred_all = 0
-            for aug_id in range(len(test_transform_set)):
-                test_transform = test_transform_set[aug_id]
-                    
-                if os.path.isfile(pred_save_path) and os.path.isfile(label_save_path):
-                    logger.info('{}/{}: {}, loaded pred and label.'.format(idx + 1, len(data_list), item))
-                    pred, label = np.load(pred_save_path), np.load(label_save_path)
-                else:
-                    coord, feat, label, idx_data = data_load(item, test_transform)
-                    pred = torch.zeros((label.size, args.classes)).cuda()
-                    idx_size = len(idx_data)
-                    idx_list, coord_list, feat_list, offset_list  = [], [], [], []
-                    for i in range(idx_size):
-                        logger.info('{}/{}: {}/{}/{}, {}'.format(idx + 1, len(data_list), i + 1, idx_size, idx_data[0].shape[0], item))
-                        idx_part = idx_data[i]
-                        coord_part, feat_part = coord[idx_part], feat[idx_part]
-                        if args.voxel_max and coord_part.shape[0] > args.voxel_max:
-                            coord_p, idx_uni, cnt = np.random.rand(coord_part.shape[0]) * 1e-3, np.array([]), 0
-                            while idx_uni.size != idx_part.shape[0]:
-                                init_idx = np.argmin(coord_p)
-                                dist = np.sum(np.power(coord_part - coord_part[init_idx], 2), 1)
-                                idx_crop = np.argsort(dist)[:args.voxel_max]
-                                coord_sub, feat_sub, idx_sub = coord_part[idx_crop], feat_part[idx_crop], idx_part[idx_crop]
-                                dist = dist[idx_crop]
-                                delta = np.square(1 - dist / np.max(dist))
-                                coord_p[idx_crop] += delta
-                                coord_sub, feat_sub = input_normalize(coord_sub, feat_sub)
-                                idx_list.append(idx_sub), coord_list.append(coord_sub), feat_list.append(feat_sub), offset_list.append(idx_sub.size)
-                                idx_uni = np.unique(np.concatenate((idx_uni, idx_sub)))
-                                # cnt += 1; logger.info('cnt={}, idx_sub/idx={}/{}'.format(cnt, idx_uni.size, idx_part.shape[0]))
-                        else:
-                            coord_part, feat_part = input_normalize(coord_part, feat_part)
-                            idx_list.append(idx_part), coord_list.append(coord_part), feat_list.append(feat_part), offset_list.append(idx_part.size)
-                    batch_num = int(np.ceil(len(idx_list) / args.batch_size_test))
-                    for i in range(batch_num):
-                        s_i, e_i = i * args.batch_size_test, min((i + 1) * args.batch_size_test, len(idx_list))
-                        idx_part, coord_part, feat_part, offset_part = idx_list[s_i:e_i], coord_list[s_i:e_i], feat_list[s_i:e_i], offset_list[s_i:e_i]
-                        idx_part = np.concatenate(idx_part)
-                        coord_part = torch.FloatTensor(np.concatenate(coord_part)).cuda(non_blocking=True)
-                        feat_part = torch.FloatTensor(np.concatenate(feat_part)).cuda(non_blocking=True)
-                        offset_part = torch.IntTensor(np.cumsum(offset_part)).cuda(non_blocking=True)
-                        with torch.no_grad():
-                            
-                            offset_ = offset_part.clone()
-                            offset_[1:] = offset_[1:] - offset_[:-1]
-                            batch = torch.cat([torch.tensor([ii]*o) for ii,o in enumerate(offset_)], 0).long().cuda(non_blocking=True)
+            # 3. 直接加载原始数据（不进行增强）
+            coord, feat, label = dataset[sample_idx]  # 调用MyDataset的__getitem__
+            label = label.astype(np.int64)  # 确保标签类型正确
 
-                            sigma = 1.0
-                            radius = 2.5 * args.grid_size * sigma
-                            neighbor_idx = tp.ball_query(radius, args.max_num_neighbors, coord_part, coord_part, mode="partial_dense", batch_x=batch, batch_y=batch)[0]
-                            neighbor_idx = neighbor_idx.cuda(non_blocking=True)
+            # 4. 处理点云分块（如果需要，根据voxel_max拆分）
+            idx_data = []
+            if args.voxel_max and coord.shape[0] > args.voxel_max:
+                # 随机分块（保持与原有逻辑一致）
+                coord_p = np.random.rand(coord.shape[0]) * 1e-3
+                idx_uni = np.array([])
+                while idx_uni.size < coord.shape[0]:
+                    init_idx = np.argmin(coord_p)
+                    dist = np.sum(np.power(coord - coord[init_idx], 2), 1)
+                    idx_crop = np.argsort(dist)[:args.voxel_max]
+                    idx_uni = np.unique(np.concatenate((idx_uni, idx_crop))).astype(np.int64)
+                    idx_data.append(idx_crop)
+            else:
+                idx_data.append(np.arange(coord.shape[0]))
 
-                            if args.concat_xyz:
-                                feat_part = torch.cat([feat_part, coord_part], 1)
+            # 5. 模型推理
+            pred = np.zeros((label.shape[0], args.classes), dtype=np.float32)
+            for idx_part in idx_data:
+                coord_part = coord[idx_part]
+                feat_part = feat[idx_part]
 
-                            pred_part = model(feat_part, coord_part, offset_part, batch, neighbor_idx)
-                            pred_part = F.softmax(pred_part, -1) # Add softmax
+                # 转换为Tensor并移至GPU
+                coord_part = torch.FloatTensor(coord_part).cuda(non_blocking=True)
+                feat_part = torch.FloatTensor(feat_part).cuda(non_blocking=True)
+                offset_part = torch.IntTensor([len(coord_part)]).cuda(non_blocking=True)
+                batch = torch.zeros(len(coord_part), dtype=torch.long).cuda(non_blocking=True)
 
-                        torch.cuda.empty_cache()
-                        pred[idx_part, :] += pred_part
-                        logger.info('Test: {}/{}, {}/{}, {}/{}, {}/{}'.format(aug_id+1, len(test_transform_set), idx + 1, len(data_list), e_i, len(idx_list), args.voxel_max, idx_part.shape[0]))
-                pred = pred / (pred.sum(-1)[:, None]+1e-8)
-                pred_all += pred
-            pred = pred_all / len(test_transform_set)
-            loss = criterion(pred, torch.LongTensor(label).cuda(non_blocking=True))  # for reference
-            pred = pred.max(1)[1].data.cpu().numpy()
+                # 计算邻域（与原有逻辑一致）
+                sigma = 1.0
+                radius = 2.5 * args.grid_size * sigma
+                neighbor_idx = tp.ball_query(
+                    radius, args.max_num_neighbors,
+                    coord_part, coord_part,
+                    mode="partial_dense",
+                    batch_x=batch, batch_y=batch
+                )[0].cuda(non_blocking=True)
 
-        # calculation 1: add per room predictions
-        intersection, union, target = intersectionAndUnion(pred, label, args.classes, args.ignore_label)
+                # 拼接坐标（如果需要）
+                if args.concat_xyz:
+                    feat_part = torch.cat([feat_part, coord_part], dim=1)
+
+                # 模型预测
+                with torch.no_grad():
+                    pred_part = model(feat_part, coord_part, offset_part, batch, neighbor_idx)
+                    pred_part = F.softmax(pred_part, dim=-1).cpu().numpy()
+
+                pred[idx_part] += pred_part
+                torch.cuda.empty_cache()
+
+            # 无需增强结果融合，直接使用原始预测
+            loss = criterion(
+                torch.FloatTensor(pred).cuda(),
+                torch.LongTensor(label).cuda(non_blocking=True)
+            )  # 参考损失
+            pred = pred.argmax(1)  # 取概率最大的类别
+
+        # 6. 计算指标
+        intersection, union, target = intersectionAndUnion(
+            pred, label, args.classes, args.ignore_label
+        )
         intersection_meter.update(intersection)
         union_meter.update(union)
         target_meter.update(target)
 
         accuracy = sum(intersection) / (sum(target) + 1e-10)
         batch_time.update(time.time() - end)
-        logger.info('Test: [{}/{}]-{} '
-                    'Batch {batch_time.val:.3f} ({batch_time.avg:.3f}) '
-                    'Accuracy {accuracy:.4f}.'.format(idx + 1, len(data_list), label.size, batch_time=batch_time, accuracy=accuracy))
-        pred_save.append(pred); label_save.append(label)
+        logger.info(
+            f'Test: [{sample_idx + 1}/{total_samples}]-{label.size} '
+            f'Batch {batch_time.val:.3f} ({batch_time.avg:.3f}) '
+            f'Accuracy {accuracy:.4f}.'
+        )
+
+        # 7. 保存结果
+        pred_save.append(pred)
+        label_save.append(label)
         if not os.path.isfile(pred_save_path):
             np.save(pred_save_path, pred)
-            
         if not os.path.isfile(label_save_path):
             np.save(label_save_path, label)
 
+    # 8. 计算整体指标
     if not os.path.exists(os.path.join(args.save_folder, "pred.pickle")):
         with open(os.path.join(args.save_folder, "pred.pickle"), 'wb') as handle:
             pickle.dump({'pred': pred_save}, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -357,25 +380,29 @@ def test(model, criterion, names, test_transform_set):
         with open(os.path.join(args.save_folder, "label.pickle"), 'wb') as handle:
             pickle.dump({'label': label_save}, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # calculation 1
+    # 计算指标（与原有逻辑一致）
     iou_class = intersection_meter.sum / (union_meter.sum + 1e-10)
     accuracy_class = intersection_meter.sum / (target_meter.sum + 1e-10)
     mIoU1 = np.mean(iou_class)
     mAcc1 = np.mean(accuracy_class)
     allAcc1 = sum(intersection_meter.sum) / (sum(target_meter.sum) + 1e-10)
 
-    # calculation 2
-    intersection, union, target = intersectionAndUnion(np.concatenate(pred_save), np.concatenate(label_save), args.classes, args.ignore_label)
+    intersection, union, target = intersectionAndUnion(
+        np.concatenate(pred_save), np.concatenate(label_save),
+        args.classes, args.ignore_label
+    )
     iou_class = intersection / (union + 1e-10)
     accuracy_class = intersection / (target + 1e-10)
     mIoU = np.mean(iou_class)
     mAcc = np.mean(accuracy_class)
     allAcc = sum(intersection) / (sum(target) + 1e-10)
+
     logger.info('Val result: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(mIoU, mAcc, allAcc))
     logger.info('Val1 result: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(mIoU1, mAcc1, allAcc1))
 
     for i in range(args.classes):
-        logger.info('Class_{} Result: iou/accuracy {:.4f}/{:.4f}, name: {}.'.format(i, iou_class[i], accuracy_class[i], names[i]))
+        logger.info('Class_{} Result: iou/accuracy {:.4f}/{:.4f}, name: {}.'.format(i, iou_class[i], accuracy_class[i],
+                                                                                    names[i]))
     logger.info('<<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<')
 
 

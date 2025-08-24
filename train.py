@@ -266,7 +266,7 @@ def main_worker(gpu, ngpus_per_node, argss):
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_data)
     else:
         train_sampler = None
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=(train_sampler is None), num_workers=args.workers, \
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=args.shuffle, num_workers=args.workers, \
         pin_memory=True, sampler=train_sampler, drop_last=True, collate_fn=partial(collate_fn_limit, max_batch_points=args.max_batch_points, logger=logger if main_process() else None))
 
     val_transform = None
@@ -292,7 +292,7 @@ def main_worker(gpu, ngpus_per_node, argss):
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_data)
     else:
         val_sampler = None
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=args.batch_size_val, shuffle=False, num_workers=args.workers, \
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size=args.batch_size_val, shuffle=args.shuffle, num_workers=args.workers, \
             pin_memory=True, sampler=val_sampler, collate_fn=collate_fn)
     
     # set scheduler
