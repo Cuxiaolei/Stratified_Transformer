@@ -55,8 +55,22 @@ class MyDataset(Dataset):
             shuffle_index=self.shuffle_index
         )
 
-        feat = feat.type(torch.float32)
-        coord = coord.type(torch.float32)
+        # 处理特征数据
+        if isinstance(feat, np.ndarray):
+            feat = feat.astype(np.float32)  # NumPy数组用astype
+        elif isinstance(feat, torch.Tensor):
+            feat = feat.type(torch.float32)  # Tensor用type
+        else:
+            raise TypeError(f"不支持的特征数据类型: {type(feat)}")
+
+        # 处理坐标数据
+        if isinstance(coord, np.ndarray):
+            coord = coord.astype(np.float32)  # NumPy数组用astype
+        elif isinstance(coord, torch.Tensor):
+            coord = coord.type(torch.float32)  # Tensor用type
+        else:
+            raise TypeError(f"不支持的坐标数据类型: {type(coord)}")
+
         return coord, feat, label
 
     def __len__(self):
