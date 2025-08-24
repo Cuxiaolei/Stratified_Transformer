@@ -54,6 +54,9 @@ class MyDataset(Dataset):
             transform=self.transform,
             shuffle_index=self.shuffle_index
         )
+
+        feat = feat.astype(np.float32)
+        coord = coord.astype(np.float32)
         return coord, feat, label
 
     def __len__(self):
