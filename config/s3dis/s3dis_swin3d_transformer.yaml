@@ -79,5 +79,5 @@ TEST:
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 4
-  model_path: runs/s3dis_swin3d_transformer/best.pth
+  model_path: runs/s3dis_swin3d_transformer/model/model_best.pth
   save_folder: runs/s3dis_swin3d_transformer/results
