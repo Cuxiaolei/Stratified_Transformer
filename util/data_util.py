@@ -120,7 +120,9 @@ def load_kitti_label(label_path, remap_lut):
     return sem_label.astype(np.int32)
 
 
-def data_prepare(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None, shuffle_index=False):
+# data_util.py #startLine: 123 #endLine: 145（修改后）
+def data_prepare(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None,
+                 shuffle_index=False):
     if transform:
         coord, feat = transform(coord, feat)
     if voxel_size:
@@ -137,17 +139,23 @@ def data_prepare(coord, feat, label, split='train', voxel_size=0.04, voxel_max=N
         np.random.shuffle(shuf_idx)
         coord, feat, label = coord[shuf_idx], feat[shuf_idx], label[shuf_idx]
 
+    # 坐标归一化：中心化
     coord_min, coord_max = np.min(coord, 0), np.max(coord, 0)
-    coord -= (coord_min + coord_max) / 2.0
-    coord = torch.FloatTensor(coord)
-    feat = torch.FloatTensor(feat) / 255.
+    coord -= (coord_min + coord_max) / 2.0  # 坐标中心化（保持原有逻辑）
+
+    # 特征归一化：仅对颜色（前3列）归一化，法向量（后3列）不处理
+    feat = torch.FloatTensor(feat)
+    feat[:, :3] /= 255.0  # 颜色通道（0-255 → 0-1）
+    # 法向量（3-5列）保持原始值，不做归一化
+
     label = torch.LongTensor(label)
     return coord, feat, label
 
 
-def data_prepare_v101(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None, shuffle_index=False):
+# data_util.py #startLine: 148 #endLine: 171（修改后）
+def data_prepare_v101(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None,
+                      shuffle_index=False):
     if transform:
-        # coord, feat, label = transform(coord, feat, label)
         coord, feat = transform(coord, feat)
     if voxel_size:
         coord_min = np.min(coord, 0)
@@ -164,9 +172,13 @@ def data_prepare_v101(coord, feat, label, split='train', voxel_size=0.04, voxel_
         coord, feat, label = coord[shuf_idx], feat[shuf_idx], label[shuf_idx]
 
     coord_min = np.min(coord, 0)
-    coord -= coord_min
-    coord = torch.FloatTensor(coord)
-    feat = torch.FloatTensor(feat) / 255.
+    coord -= coord_min  # 坐标归一化（平移到原点）
+
+    # 特征归一化：仅颜色（前3列）处理
+    feat = torch.FloatTensor(feat)
+    feat[:, :3] /= 255.0  # 颜色通道归一化
+    # 法向量不处理
+
     label = torch.LongTensor(label)
     return coord, feat, label
 
@@ -226,8 +238,12 @@ def data_prepare_v102(coord, feat, label, split='train', voxel_size=0.04, voxel_
 
     coord_min = np.min(coord, 0)
     coord -= coord_min
-    coord = torch.FloatTensor(coord)
-    feat = torch.FloatTensor(feat) / 255.
+
+    # 特征归一化修改
+    feat = torch.FloatTensor(feat)
+    feat[:, :3] /= 255.0  # 仅颜色通道归一化
+    # 法向量保持不变
+
     label = torch.LongTensor(label)
     return coord, feat, label
 
@@ -261,8 +277,12 @@ def data_prepare_v103(coord, feat, label, split='train', voxel_size=0.04, voxel_
 
     coord_min = np.min(coord, 0)
     coord -= coord_min
-    coord = torch.FloatTensor(coord)
-    feat = torch.FloatTensor(feat) / 255.
+
+    # 特征归一化修改
+    feat = torch.FloatTensor(feat)
+    feat[:, :3] /= 255.0  # 仅颜色通道归一化
+    # 法向量保持不变
+
     label = torch.LongTensor(label)
     return coord, feat, label
 
@@ -296,8 +316,12 @@ def data_prepare_v104(coord, feat, label, split='train', voxel_size=0.04, voxel_
 
     coord_min = np.min(coord, 0)
     coord -= coord_min
-    coord = torch.FloatTensor(coord)
-    feat = torch.FloatTensor(feat) / 255.
+
+    # 特征归一化修改
+    feat = torch.FloatTensor(feat)
+    feat[:, :3] /= 255.0  # 仅颜色通道归一化
+    # 法向量保持不变
+
     label = torch.LongTensor(label)
     return coord, feat, label
 
@@ -320,8 +344,12 @@ def data_prepare_v105(coord, feat, label, split='train', voxel_size=0.04, voxel_
         coord, feat, label = coord[shuf_idx], feat[shuf_idx], label[shuf_idx]
 
     coord_min = np.min(coord, 0)
-    coord[:, 0:2] -= coord_min[0:2]
-    coord = torch.FloatTensor(coord)
-    feat = torch.FloatTensor(feat) / 255.
+    coord -= coord_min
+
+    # 特征归一化修改
+    feat = torch.FloatTensor(feat)
+    feat[:, :3] /= 255.0  # 仅颜色通道归一化
+    # 法向量保持不变
+
     label = torch.LongTensor(label)
     return coord, feat, label

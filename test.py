@@ -186,7 +186,7 @@ def data_load(data_name, transform):
         # 1. 拼接完整数据路径（需与 val_scenes.txt 中的路径匹配）
         # 示例：val_scenes.txt 中是 "merged/sample_1.npy"，则拼接为 args.data_root/merged/sample_1.npy
         # 先从 val_scenes.txt 重新读取完整路径（避免 data_name 仅含文件名）
-        val_split_file = os.path.join(args.data_root, 'val_scenes.txt')
+        val_split_file = os.path.join(args.data_root, 'test_scenes.txt')
         with open(val_split_file, 'r') as f:
             full_paths = [line.strip() for line in f.readlines()]
         # 根据 data_name（如 "sample_1"）找到对应的完整路径
@@ -225,23 +225,23 @@ def data_load(data_name, transform):
     return coord, feat, label, idx_data
 
 
+# test.py #startLine: 232 #endLine: 247（修改后）
 def input_normalize(coord, feat):
-    # 坐标归一化（所有数据集通用）
+    # 坐标归一化（与训练一致：平移到原点）
     coord_min = np.min(coord, 0)
     coord -= coord_min
 
-    # 特征归一化（按数据集适配）
+    # 特征归一化（与训练逻辑对齐）
     if args.data_name == 's3dis':
-        feat = feat / 255.  # S3DIS：rgb 0-255 → 0-1
-    # ---------------------- 新增：my_dataset 分支 ----------------------
+        feat = feat / 255.  # S3DIS 特征全为颜色，整体归一化
+    # 统一 my_dataset 归一化逻辑
     elif args.data_name == 'my_dataset':
-        # 假设：rgb 是 0-255 范围，法向量已归一化（若未归一化，需加 feat[:,3:6] = feat[:,3:6]/np.linalg.norm(feat[:,3:6], axis=1, keepdims=True)）
-        feat[:, 0:3] = feat[:, 0:3] / 255.  # rgb 归一化到 0-1
-        # 法向量若未归一化，添加以下代码：
-        # norm = np.linalg.norm(feat[:, 3:6], axis=1, keepdims=True)
-        # feat[:, 3:6] = feat[:, 3:6] / (norm + 1e-8)  # 避免除以0
-    # -------------------------------------------------------------------
+        # 仅颜色通道（前3列）归一化，法向量（后3列）不处理
+        feat = feat.copy()  # 避免修改原数组
+        feat[:, 0:3] = feat[:, 0:3] / 255.0  # 颜色 0-255 → 0-1
+        # 法向量保持原始值，不做归一化
     return coord, feat
+
 
 def test(model, criterion, names, test_transform_set):
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
@@ -249,8 +249,7 @@ def test(model, criterion, names, test_transform_set):
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
     target_meter = AverageMeter()
-    args.batch_size_test = 5 
-    # args.voxel_max = None
+    args.batch_size_test = 5
     model.eval()
 
     check_makedirs(args.save_folder)

@@ -271,9 +271,9 @@ def main_worker(gpu, ngpus_per_node, argss):
 
     val_transform = None
     if args.data_name == 's3dis':
-        val_data = S3DIS(split='val', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=800000, transform=val_transform)
+        val_data = S3DIS(split='val', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=args.voxel_max, transform=val_transform)
     elif args.data_name == 'scannetv2':
-        val_data = Scannetv2(split='val', data_root=args.data_root, voxel_size=args.voxel_size, voxel_max=800000, transform=val_transform)
+        val_data = Scannetv2(split='val', data_root=args.data_root, voxel_size=args.voxel_size, voxel_max=args.voxel_max, transform=val_transform)
     elif args.data_name == 'my_dataset':
         # 验证集加载（与训练集逻辑一致，仅 split 改为 'val'）
         val_data = MyDataset(
@@ -281,7 +281,7 @@ def main_worker(gpu, ngpus_per_node, argss):
             data_root=args.data_root,  # 同训练集根路径
             transform=val_transform,  # 验证集通常不增强，val_transform 一般为 None
             voxel_size=args.voxel_size,  # 与训练集保持一致的体素大小
-            voxel_max=800000,  # 验证集可放宽点数量限制（如800000，避免过度下采样影响评估）
+            voxel_max=args.voxel_max,  # 验证集可放宽点数量限制（如80000，避免过度下采样影响评估）
             shuffle_index=False,  # 验证集无需打乱点顺序（保持原始顺序便于可视化）
             loop=1  # 验证集无需循环（仅跑1遍）
         )
