@@ -154,10 +154,10 @@ def data_prepare():
         data_list = [item[:-4] for item in data_list if '.pth' in item]
     # ---------------------- 新增：my_dataset 分支 ----------------------
     elif args.data_name == 'my_dataset':
-        # 读取 val_scenes.txt 划分文件（与训练集逻辑一致）
-        val_split_file = os.path.join(args.data_root, 'val_scenes.txt')
+        # 读取 test_scenes.txt 划分文件（与训练集逻辑一致）
+        val_split_file = os.path.join(args.data_root, 'test_scenes.txt')
         if not os.path.exists(val_split_file):
-            raise FileNotFoundError(f"my_dataset 验证集划分文件 {val_split_file} 不存在！")
+            raise FileNotFoundError(f"my_dataset 测试集划分文件 {val_split_file} 不存在！")
         # 加载样本路径列表（每行是 .npy 文件的相对路径，如 "merged/sample_1.npy"）
         with open(val_split_file, 'r') as f:
             data_list = [line.strip() for line in f.readlines()]
