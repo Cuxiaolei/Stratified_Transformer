@@ -30,7 +30,7 @@ TRAIN:
   drop_path_rate: 0.3
   concat_xyz: True
   grid_size: 0.04
-  max_batch_points: 140000
+  max_batch_points: 640000
   max_num_neighbors: 34 # For KPConv
   ratio: 0.25
   k: 16
@@ -49,7 +49,7 @@ TRAIN:
   optimizer: AdamW 
   ignore_label: 255
   train_gpu: [0]
-  workers: 16  # data loader workers
+  workers: 8  # data loader workers
   batch_size: 8  # batch size for training
   batch_size_val: 4  # batch size for validation during training, memory and speed tradeoff
   base_lr: 0.006
