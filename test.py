@@ -142,7 +142,8 @@ def main():
         test_transform = transform.RandomShift_test(shift_range=-0.2)
         test_transform_set.append(test_transform)
 
-    test(model, criterion, names, test_transform_set)
+    test_transform = None  # 无增强，仅必要预处理
+    test(model, criterion, names, test_transform)
 
 
 def data_prepare():
@@ -260,7 +261,7 @@ def create_test_dataset(transform):
 
 
 # test.py (不进行数据增强的版本)
-def test(model, criterion, names, test_transform):  # 修改参数，仅接收单一transform
+def test(model, criterion, names, test_transform = None):  # 修改参数，仅接收单一transform
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     batch_time = AverageMeter()
     intersection_meter = AverageMeter()
