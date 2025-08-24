@@ -7,6 +7,7 @@ DATA:
   in_channels: 6
   voxel_size: 0.04
   voxel_max: 80000
+  shuffle_index: True
   loop: 6
 
 TRAIN:
@@ -50,7 +51,7 @@ TRAIN:
   ignore_label: 255
   train_gpu: [0]
   workers: 16  # data loader workers
-  batch_size: 8  # batch size for training
+  batch_size: 4  # batch size for training
   batch_size_val: 4  # batch size for validation during training, memory and speed tradeoff
   base_lr: 0.006
   epochs: 100

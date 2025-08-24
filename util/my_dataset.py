@@ -7,7 +7,7 @@ from util.data_util import data_prepare  # 复用现有预处理工具
 
 class MyDataset(Dataset):
     def __init__(self, split='train', data_root=None, transform=None,
-                 voxel_size=0.04, voxel_max=None, shuffle_index=False, loop=1):
+                 voxel_size=0.04, voxel_max=None, shuffle_index=True, loop=1):
         super().__init__()
         self.split = split
         self.data_root = data_root  # 数据集根目录（包含merged文件夹和txt文件）

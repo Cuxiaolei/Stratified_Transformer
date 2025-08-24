@@ -7,6 +7,7 @@ DATA:
   in_channels: 6
   voxel_size: 0.04
   voxel_max: 80000
+  shuffle_index: True
   loop: 30
 
 TRAIN:

@@ -132,7 +132,7 @@ def load_kitti_label(label_path, remap_lut):
 
 # data_util.py #startLine: 123 #endLine: 145（修改后）
 def data_prepare(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None,
-                 shuffle_index=False):
+                 shuffle_index=True):
     if transform:
         coord, feat = transform(coord, feat)
     if voxel_size:
