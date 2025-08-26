@@ -31,7 +31,7 @@ TRAIN:
   drop_path_rate: 0.3
   concat_xyz: True
   grid_size: 0.02
-  max_batch_points: 250000
+  max_batch_points: 640000
   max_num_neighbors: 34 # For KPConv
   ratio: 0.25
   k: 16
