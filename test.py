@@ -54,35 +54,37 @@ def get_logger():
 
 
 def data_prepare():
-    """修改为直接识别test文件夹下的场景文件夹"""
+    """获取测试场景列表，与MyDataset保持一致的场景识别逻辑"""
     if args.data_name == 's3dis':
         data_list = sorted(os.listdir(args.data_root))
         data_list = [item[:-4] for item in data_list if 'Area_{}'.format(args.test_area) in item]
     elif args.data_name == 'scannetv2':
         data_list = sorted(os.listdir(args.data_root_val))
         data_list = [item[:-4] for item in data_list if '.pth' in item]
-    # 针对my_dataset的处理逻辑：直接识别test文件夹下的场景文件夹
+    # 针对my_dataset的处理逻辑：与MyDataset保持一致
     elif args.data_name == 'my_dataset':
-        # 测试数据根目录应为包含场景文件夹的test文件夹
-        test_root = args.data_root if args.data_root.endswith('test') else os.path.join(args.data_root, 'test')
+        # 构建测试数据目录路径
+        test_dir = os.path.join(args.data_root, 'test')
+        if not os.path.isdir(test_dir):
+            raise NotADirectoryError(f"my_dataset测试文件夹 {test_dir} 不存在！")
 
-        # 验证test文件夹是否存在
-        if not os.path.isdir(test_root):
-            raise NotADirectoryError(f"my_dataset测试文件夹 {test_root} 不存在！")
-
-        # 获取test文件夹下的所有场景文件夹
+        # 获取所有有效的场景文件夹（与MyDataset逻辑一致）
         data_list = []
-        for item in sorted(os.listdir(test_root)):
-            item_path = os.path.join(test_root, item)
-            # 只考虑文件夹（场景）
-            if os.path.isdir(item_path):
-                data_list.append(item)
+        for scene in os.listdir(test_dir):
+            scene_path = os.path.join(test_dir, scene)
+            if os.path.isdir(scene_path):
+                # 检查必要文件是否存在（与MyDataset保持一致）
+                required_files = ['color.npy', 'coord.npy', 'normal.npy', 'segment20.npy']
+                if all(os.path.exists(os.path.join(scene_path, f)) for f in required_files):
+                    data_list.append(scene)
+                else:
+                    logger.warning(f"场景 {scene} 缺少必要文件，已跳过")
 
-        # 验证是否找到场景文件夹
+        # 验证是否找到有效场景
         if not data_list:
-            raise Exception(f"在 {test_root} 下未找到任何场景文件夹！")
+            raise Exception(f"在 {test_dir} 下未找到任何有效的场景文件夹！")
 
-        print(f"测试集场景文件夹总数: {len(data_list)}")
+        logger.info(f"测试集有效场景文件夹总数: {len(data_list)}")
     else:
         raise Exception(f'数据集 {args.data_name} 不支持')
 
@@ -165,7 +167,7 @@ def main():
     else:
         raise RuntimeError(f"=> 未找到模型 checkpoint '{args.model_path}'")
 
-    # 创建测试数据集（确保数据加载器使用文件夹识别模式）
+    # 创建测试数据集（与MyDataset完美适配）
     test_dataset = MyDataset(
         split='test',
         data_root=args.data_root,
@@ -182,39 +184,39 @@ def main():
     # 验证数据加载器加载的样本数与场景文件夹数是否一致
     if len(test_dataset) != len(sample_names):
         logger.warning(f"数据加载器样本数({len(test_dataset)})与场景文件夹数({len(sample_names)})不匹配")
+    else:
+        logger.info(f"数据加载器与场景文件夹数量匹配: {len(test_dataset)} 个样本")
 
     # 测试
     test(model, criterion, class_names, test_dataset, sample_names)
 
 
 def input_normalize(coord, feat):
-    """数据归一化，与训练时保持一致（使用PyTorch张量操作）"""
-    # 检查是否为PyTorch张量，若是则转换为numpy数组处理
-    if isinstance(coord, torch.Tensor):
-        coord = coord.numpy()
-    if isinstance(feat, torch.Tensor):
-        feat = feat.numpy()
+    """数据归一化，与训练时保持一致"""
+    # 对于MyDataset，数据已经是Tensor格式，直接在GPU上处理以提高效率
+    if isinstance(coord, np.ndarray):
+        coord = torch.from_numpy(coord).float()
+    if isinstance(feat, np.ndarray):
+        feat = torch.from_numpy(feat).float()
 
     # 坐标归一化：平移到原点
-    coord_min = np.min(coord, 0)
-    coord -= coord_min
+    coord_min = torch.min(coord, dim=0)[0]
+    coord = coord - coord_min
 
-    # 特征归一化
+    # 特征归一化（与MyDataset数据格式匹配）
     if args.data_name == 'my_dataset':
-        # 复制数据以避免修改原始数组
-        feat = feat.copy()
         # 颜色通道(前3列)归一化到0-1
         feat[:, 0:3] = feat[:, 0:3] / 255.0
         # 法向量(后3列)保持不变
     elif args.data_name == 's3dis':
         # S3DIS数据集特征归一化
-        feat = feat / 255.
+        feat = feat / 255.0
 
     return coord, feat
 
 
 def test(model, criterion, class_names, test_dataset, sample_names):
-    """测试函数，使用场景文件夹名称作为样本名称"""
+    """测试函数，优化与MyDataset的交互"""
     logger.info('>>>>>>>>>>>>>>>> 开始评估 >>>>>>>>>>>>>>>>')
 
     # 初始化指标计算器
@@ -236,12 +238,12 @@ def test(model, criterion, class_names, test_dataset, sample_names):
     total_samples = len(test_dataset)
     logger.info(f"测试集样本总数: {total_samples}")
 
-    # 遍历每个场景文件夹
+    # 遍历每个场景
     for sample_idx in range(total_samples):
         scene_name = sample_names[sample_idx]  # 使用场景文件夹名称
         start_time = time.time()
 
-        # 结果保存路径（使用场景文件夹名称）
+        # 结果保存路径
         pred_save_path = os.path.join(args.save_folder, f'{scene_name}_pred.npy')
         label_save_path = os.path.join(args.save_folder, f'{scene_name}_label.npy')
 
@@ -251,43 +253,39 @@ def test(model, criterion, class_names, test_dataset, sample_names):
             pred = np.load(pred_save_path)
             label = np.load(label_save_path)
         else:
-            # 从数据加载器获取该场景的数据
-            # 注意：根据MyDataset的返回格式调整，这里假设返回的是(coord, feat, label)且均为numpy数组
-            data = test_dataset[sample_idx]
-            coord, feat, label = data['pos'], data['x'], data['y']
+            # 从MyDataset获取数据，已适配其返回格式(coord, feat, label)
+            coord, feat, label = test_dataset[sample_idx]
 
-            # 确保label是numpy数组
-            if isinstance(label, torch.Tensor):
-                label = label.numpy()
+            # 移至CPU并转为numpy用于后续处理
+            label_np = label.cpu().numpy()
+            num_points = label_np.shape[0]
+            logger.info(f"场景 {scene_name} 包含 {num_points} 个点")
 
-            # 数据归一化
+            # 数据归一化（保持与训练一致）
             coord, feat = input_normalize(coord, feat)
 
             # 处理点云分块（如果点云过大）
             idx_data = []
-            if args.voxel_max and coord.shape[0] > args.voxel_max:
+            if args.voxel_max and num_points > args.voxel_max:
                 # 随机分块处理
-                coord_p = np.random.rand(coord.shape[0]) * 1e-3
+                coord_np = coord.cpu().numpy()
+                coord_p = np.random.rand(num_points) * 1e-3
                 idx_uni = np.array([])
-                while idx_uni.size < coord.shape[0]:
+                while idx_uni.size < num_points:
                     init_idx = np.argmin(coord_p)
-                    dist = np.sum(np.power(coord - coord[init_idx], 2), 1)
+                    dist = np.sum(np.power(coord_np - coord_np[init_idx], 2), 1)
                     idx_crop = np.argsort(dist)[:args.voxel_max]
                     idx_uni = np.unique(np.concatenate((idx_uni, idx_crop))).astype(np.int64)
                     idx_data.append(idx_crop)
             else:
-                idx_data.append(np.arange(coord.shape[0]))
+                idx_data.append(np.arange(num_points))
 
             # 模型推理
-            pred = np.zeros((label.shape[0], args.classes), dtype=np.float32)
+            pred = np.zeros((num_points, args.classes), dtype=np.float32)
             for idx_part in idx_data:
                 # 获取点云子集
-                coord_part = coord[idx_part]
-                feat_part = feat[idx_part]
-
-                # 转换为Tensor并移至GPU
-                coord_part = torch.FloatTensor(coord_part).cuda(non_blocking=True)
-                feat_part = torch.FloatTensor(feat_part).cuda(non_blocking=True)
+                coord_part = coord[idx_part].cuda(non_blocking=True)
+                feat_part = feat[idx_part].cuda(non_blocking=True)
                 offset_part = torch.IntTensor([len(coord_part)]).cuda(non_blocking=True)
                 batch = torch.zeros(len(coord_part), dtype=torch.long).cuda(non_blocking=True)
 
@@ -319,7 +317,8 @@ def test(model, criterion, class_names, test_dataset, sample_names):
 
             # 保存预测结果
             np.save(pred_save_path, pred)
-            np.save(label_save_path, label)
+            np.save(label_save_path, label_np)
+            label = label_np  # 统一变量格式
 
         # 计算评估指标
         intersection, union, target = intersectionAndUnion(
@@ -344,13 +343,11 @@ def test(model, criterion, class_names, test_dataset, sample_names):
         all_labels.append(label)
 
     # 保存所有预测和标签的汇总
-    if not os.path.exists(os.path.join(args.save_folder, "pred.pickle")):
-        with open(os.path.join(args.save_folder, "pred.pickle"), 'wb') as handle:
-            pickle.dump({'pred': all_preds}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(os.path.join(args.save_folder, "pred.pickle"), 'wb') as handle:
+        pickle.dump({'pred': all_preds}, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    if not os.path.exists(os.path.join(args.save_folder, "label.pickle")):
-        with open(os.path.join(args.save_folder, "label.pickle"), 'wb') as handle:
-            pickle.dump({'label': all_labels}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(os.path.join(args.save_folder, "label.pickle"), 'wb') as handle:
+        pickle.dump({'label': all_labels}, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # 计算整体评估指标
     iou_class = intersection_meter.sum / (union_meter.sum + 1e-10)
