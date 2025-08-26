@@ -57,6 +57,79 @@ def log_memory_usage(stage):
     logger.info(f"[Memory] {stage} - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
 
 
+def grid_based_chunking(coord, voxel_max):
+    """
+    基于网格的点云分块算法，确保均匀覆盖所有点
+    coord: 点云坐标 (N, 3)
+    voxel_max: 每个分块的最大点数
+    return: 分块索引列表
+    """
+    # 计算点云边界框
+    min_coord = np.min(coord, axis=0)
+    max_coord = np.max(coord, axis=0)
+    logger.info(f"Point cloud bounding box: {min_coord} to {max_coord}")
+
+    # 计算需要的网格数量（基于每个网格大约包含voxel_max个点的假设）
+    total_points = coord.shape[0]
+    num_chunks = max(1, int(total_points / voxel_max) + 1)
+    logger.info(f"Total points: {total_points}, target chunks: {num_chunks}")
+
+    # 计算网格维度（尽量接近正方体）
+    grid_dim = int(num_chunks ** (1 / 3)) + 1
+    while grid_dim ** 3 < num_chunks:
+        grid_dim += 1
+
+    # 计算每个网格的大小
+    grid_size = (max_coord - min_coord) / grid_dim
+
+    # 为每个点分配网格索引
+    grid_indices = ((coord - min_coord) / grid_size).astype(int)
+    # 确保索引在有效范围内
+    grid_indices = np.clip(grid_indices, 0, grid_dim - 1)
+
+    # 构建网格到点索引的映射
+    grid_to_points = {}
+    for idx, (x, y, z) in enumerate(grid_indices):
+        key = (x, y, z)
+        if key not in grid_to_points:
+            grid_to_points[key] = []
+        grid_to_points[key].append(idx)
+
+    # 合并小网格（点数少于voxel_max/2的网格）
+    chunk_indices = []
+    current_chunk = []
+
+    for key in sorted(grid_to_points.keys()):
+        points = grid_to_points[key]
+        if len(current_chunk) + len(points) <= voxel_max:
+            current_chunk.extend(points)
+        else:
+            if current_chunk:  # 添加当前块
+                chunk_indices.append(np.array(current_chunk))
+            # 开始新块
+            current_chunk = points
+
+    # 添加最后一个块
+    if current_chunk:
+        chunk_indices.append(np.array(current_chunk))
+
+    # 检查是否有超大块需要分割
+    final_chunks = []
+    for chunk in chunk_indices:
+        if len(chunk) > voxel_max:
+            # 超过最大限制时，均匀分割
+            num_split = (len(chunk) // voxel_max) + 1
+            for i in range(num_split):
+                start = i * voxel_max
+                end = min((i + 1) * voxel_max, len(chunk))
+                final_chunks.append(chunk[start:end])
+        else:
+            final_chunks.append(chunk)
+
+    logger.info(f"Generated {len(final_chunks)} chunks (grid-based)")
+    return final_chunks
+
+
 def main():
     global args, logger
     args = get_parser()
@@ -172,32 +245,31 @@ def test(model, criterion, names, test_transform):
         else:
             logger.info(f'{sample_idx + 1}/{total_samples}: {item} - starting processing')
 
-            # 加载数据时添加日志
+            # 加载数据
             logger.info(f"[Step 1/5] Loading data for {item}")
             coord, feat, label = dataset[sample_idx]
             label = label.long()
             logger.info(f"[Data Info] coord shape: {coord.shape}, feat shape: {feat.shape}, label shape: {label.shape}")
             log_memory_usage(f"After loading data for {item}")
 
-            # 点云分块处理
+            # 点云分块处理（使用改进的网格分块算法）
             logger.info(f"[Step 2/5] Starting point cloud chunking for {item}")
             idx_data = []
             if args.voxel_max and coord.shape[0] > args.voxel_max:
-                logger.info(f"Point count ({coord.shape[0]}) exceeds voxel_max ({args.voxel_max}), starting chunking")
+                logger.info(
+                    f"Point count ({coord.shape[0]}) exceeds voxel_max ({args.voxel_max}), starting grid-based chunking")
+                # 转换为numpy进行分块
                 coord_np = coord.numpy()
-                coord_p = np.random.rand(coord_np.shape[0]) * 1e-3
-                idx_uni = np.array([], dtype=np.int64)
-                chunk_idx = 0
-                while idx_uni.size < coord_np.shape[0]:
-                    init_idx = np.argmin(coord_p)
-                    dist = np.sum(np.power(coord_np - coord_np[init_idx], 2), 1)
-                    idx_crop = np.argsort(dist)[:args.voxel_max]
-                    idx_uni = np.unique(np.concatenate((idx_uni, idx_crop))).astype(np.int64)
-                    idx_data.append(idx_crop)
-                    chunk_idx += 1
-                    logger.info(
-                        f"Generated chunk {chunk_idx}, current covered points: {idx_uni.size}/{coord_np.shape[0]}")
-                logger.info(f"Total chunks generated: {len(idx_data)}")
+                # 使用新的网格分块算法
+                idx_data = grid_based_chunking(coord_np, args.voxel_max)
+
+                # 验证分块覆盖所有点
+                all_indices = np.concatenate(idx_data)
+                unique_indices = np.unique(all_indices)
+                coverage = len(unique_indices) / coord.shape[0] * 100
+                logger.info(f"Chunk coverage: {coverage:.2f}% ({len(unique_indices)}/{coord.shape[0]} points)")
+                if coverage < 99.9:
+                    logger.warning(f"Low coverage! Some points may not be processed")
             else:
                 idx_data.append(np.arange(coord.shape[0]))
                 logger.info(f"No chunking needed (voxel_max: {args.voxel_max}, point count: {coord.shape[0]})")
@@ -210,7 +282,6 @@ def test(model, criterion, names, test_transform):
                 logger.info(f"Processing chunk {chunk_id + 1}/{len(idx_data)}, chunk size: {len(idx_part)}")
 
                 # 准备分块数据
-                logger.info(f"[Chunk {chunk_id + 1}] Preparing data")
                 coord_part = coord[idx_part].cuda(non_blocking=True)
                 feat_part = feat[idx_part].cuda(non_blocking=True)
                 offset_part = torch.tensor([len(coord_part)], dtype=torch.int32).cuda(non_blocking=True)
@@ -280,7 +351,7 @@ def test(model, criterion, names, test_transform):
         pred_save.append(pred)
         label_save.append(label.numpy())
 
-    # 保存整体结果和指标（保持原有逻辑）
+    # 保存整体结果和指标
     with open(os.path.join(args.save_folder, "pred_all.pickle"), 'wb') as f:
         pickle.dump({'pred': pred_save, 'names': sample_names}, f, protocol=pickle.HIGHEST_PROTOCOL)
     with open(os.path.join(args.save_folder, "label_all.pickle"), 'wb') as f:
