@@ -6,27 +6,35 @@ import logging
 import pickle
 import argparse
 import collections
+import csv
 
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
-import csv
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+
+import torch_points_kernels as tp
+
 from util import config, transform
 from util.common_util import AverageMeter, intersectionAndUnion, check_makedirs
 from util.voxelize import voxelize
-import torch_points_kernels as tp
-import torch.nn.functional as F
-from util.my_dataset import MyDataset
+from util.my_dataset import MyDataset  # 导入数据加载器
+
+# 设置随机种子，确保结果可复现
 random.seed(123)
 np.random.seed(123)
+torch.manual_seed(123)
+torch.cuda.manual_seed_all(123)
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(description='PyTorch Point Cloud Classification / Semantic Segmentation')
+    parser = argparse.ArgumentParser(description='PyTorch Point Cloud Semantic Segmentation Testing')
     parser.add_argument('--config', type=str, default='config/s3dis/s3dis_pointweb.yaml', help='config file')
-    parser.add_argument('opts', help='see config/s3dis/s3dis_pointweb.yaml for all options', default=None, nargs=argparse.REMAINDER)
+    parser.add_argument('opts', help='see config/s3dis/s3dis_pointweb.yaml for all options', default=None,
+                        nargs=argparse.REMAINDER)
     args = parser.parse_args()
     assert args.config is not None
     cfg = config.load_cfg_from_cfg_file(args.config)
@@ -55,249 +63,160 @@ def main():
     logger.info("=> creating model ...")
     logger.info("Classes: {}".format(args.classes))
 
-    # get model
+    # 加载模型
     if args.arch == 'stratified_transformer':
-        
         from model.stratified_transformer import Stratified
-
         args.patch_size = args.grid_size * args.patch_size
-        args.window_size = [args.patch_size * args.window_size * (2**i) for i in range(args.num_layers)]
-        args.grid_sizes = [args.patch_size * (2**i) for i in range(args.num_layers)]
-        args.quant_sizes = [args.quant_size * (2**i) for i in range(args.num_layers)]
+        args.window_size = [args.patch_size * args.window_size * (2 ** i) for i in range(args.num_layers)]
+        args.grid_sizes = [args.patch_size * (2 ** i) for i in range(args.num_layers)]
+        args.quant_sizes = [args.quant_size * (2 ** i) for i in range(args.num_layers)]
 
-        model = Stratified(args.downsample_scale, args.depths, args.channels, args.num_heads, args.window_size, \
-            args.up_k, args.grid_sizes, args.quant_sizes, rel_query=args.rel_query, \
-            rel_key=args.rel_key, rel_value=args.rel_value, drop_path_rate=args.drop_path_rate, concat_xyz=args.concat_xyz, num_classes=args.classes, \
-            ratio=args.ratio, k=args.k, prev_grid_size=args.grid_size, sigma=1.0, num_layers=args.num_layers, stem_transformer=args.stem_transformer, in_channels=args.in_channels)
+        model = Stratified(
+            args.downsample_scale, args.depths, args.channels, args.num_heads,
+            args.window_size, args.up_k, args.grid_sizes, args.quant_sizes,
+            rel_query=args.rel_query, rel_key=args.rel_key, rel_value=args.rel_value,
+            drop_path_rate=args.drop_path_rate, concat_xyz=args.concat_xyz,
+            num_classes=args.classes, ratio=args.ratio, k=args.k,
+            prev_grid_size=args.grid_size, sigma=1.0, num_layers=args.num_layers,
+            stem_transformer=args.stem_transformer, in_channels=args.in_channels
+        )
 
     elif args.arch == 'swin3d_transformer':
-        
         from model.swin3d_transformer import Swin
-
         args.patch_size = args.grid_size * args.patch_size
-        args.window_sizes = [args.patch_size * args.window_size * (2**i) for i in range(args.num_layers)]
-        args.grid_sizes = [args.patch_size * (2**i) for i in range(args.num_layers)]
-        args.quant_sizes = [args.quant_size * (2**i) for i in range(args.num_layers)]
+        args.window_sizes = [args.patch_size * args.window_size * (2 ** i) for i in range(args.num_layers)]
+        args.grid_sizes = [args.patch_size * (2 ** i) for i in range(args.num_layers)]
+        args.quant_sizes = [args.quant_size * (2 ** i) for i in range(args.num_layers)]
 
-        model = Swin(args.depths, args.channels, args.num_heads, \
-            args.window_sizes, args.up_k, args.grid_sizes, args.quant_sizes, rel_query=args.rel_query, \
-            rel_key=args.rel_key, rel_value=args.rel_value, drop_path_rate=args.drop_path_rate, \
-            concat_xyz=args.concat_xyz, num_classes=args.classes, \
-            ratio=args.ratio, k=args.k, prev_grid_size=args.grid_size, sigma=1.0, num_layers=args.num_layers, stem_transformer=args.stem_transformer, in_channels=args.in_channels)
+        model = Swin(
+            args.depths, args.channels, args.num_heads, args.window_sizes,
+            args.up_k, args.grid_sizes, args.quant_sizes, rel_query=args.rel_query,
+            rel_key=args.rel_key, rel_value=args.rel_value, drop_path_rate=args.drop_path_rate,
+            concat_xyz=args.concat_xyz, num_classes=args.classes, ratio=args.ratio,
+            k=args.k, prev_grid_size=args.grid_size, sigma=1.0, num_layers=args.num_layers,
+            stem_transformer=args.stem_transformer, in_channels=args.in_channels
+        )
 
     else:
-        raise Exception('architecture {} not supported yet'.format(args.arch))
-    
-    model = model.cuda()
+        raise Exception(f'Architecture {args.arch} not supported yet')
 
-    #model = torch.nn.DataParallel(model.cuda())
+    model = model.cuda()
     logger.info(model)
+
+    # 损失函数
     criterion = nn.CrossEntropyLoss(ignore_index=args.ignore_label).cuda()
-    names = ['铁塔', '背景', '导线']
+
+    # 类别名称
+    class_names = ['铁塔', '背景', '导线']
+    if len(class_names) != args.classes:
+        logger.warning(f"类别名称数量({len(class_names)})与类别数量({args.classes})不匹配")
+        class_names = [f'类别_{i}' for i in range(args.classes)]
+
+    # 加载最佳模型
     if os.path.isfile(args.model_path):
-        logger.info("=> loading checkpoint '{}'".format(args.model_path))
+        logger.info(f"=> 加载模型 checkpoint '{args.model_path}'")
         checkpoint = torch.load(args.model_path)
         state_dict = checkpoint['state_dict']
         new_state_dict = collections.OrderedDict()
+
+        # 调整参数名以适配模型结构
         for k, v in state_dict.items():
-            name = k[7:]
+            name = k[7:] if k.startswith('module.') else k  # 移除可能的module前缀
             new_state_dict[name.replace("item", "stem")] = v
+
         model.load_state_dict(new_state_dict, strict=True)
-        logger.info("=> loaded checkpoint '{}' (epoch {})".format(args.model_path, checkpoint['epoch']))
+        logger.info(f"=> 成功加载 checkpoint '{args.model_path}' (epoch {checkpoint['epoch']})")
         args.epoch = checkpoint['epoch']
     else:
-        raise RuntimeError("=> no checkpoint found at '{}'".format(args.model_path))
+        raise RuntimeError(f"=> 未找到模型 checkpoint '{args.model_path}'")
+
+    # 创建测试数据集和数据加载器
+    test_dataset = MyDataset(
+        split='test',
+        data_root=args.data_root,
+        transform=None,  # 测试时不使用数据增强
+        voxel_size=args.voxel_size,
+        voxel_max=args.voxel_max,
+        shuffle_index=False,  # 测试时不打乱索引
+        loop=1
+    )
+
+    # 测试
+    test(model, criterion, class_names, test_dataset)
 
 
-    # transform
-    test_transform_set = []
-    test_transform_set.append(None) # for None aug
-    test_transform_set.append(None) # for permutate
-
-    # aug 90
-    logger.info("augmentation roate")
-    logger.info("rotate_angle: {}".format(90))
-    test_transform = transform.RandomRotate(rotate_angle=90, along_z=args.get('rotate_along_z', True))
-    test_transform_set.append(test_transform)
-    
-    # aug 180
-    logger.info("augmentation roate")
-    logger.info("rotate_angle: {}".format(180))
-    test_transform = transform.RandomRotate(rotate_angle=180, along_z=args.get('rotate_along_z', True))
-    test_transform_set.append(test_transform)
-    
-    # aug 270
-    logger.info("augmentation roate")
-    logger.info("rotate_angle: {}".format(270))
-    test_transform = transform.RandomRotate(rotate_angle=270, along_z=args.get('rotate_along_z', True))
-    test_transform_set.append(test_transform)
-    
-    if args.data_name == 's3dis':
-        
-        # shift +0.2
-        test_transform = transform.RandomShift_test(shift_range=0.2)
-        test_transform_set.append(test_transform)
-
-        # shift -0.2
-        test_transform = transform.RandomShift_test(shift_range=-0.2)
-        test_transform_set.append(test_transform)
-
-    test_transform = None  # 无增强，仅必要预处理
-    test(model, criterion, names, test_transform)
-
-
-def data_prepare():
-    if args.data_name == 's3dis':
-        data_list = sorted(os.listdir(args.data_root))
-        data_list = [item[:-4] for item in data_list if 'Area_{}'.format(args.test_area) in item]
-    elif args.data_name == 'scannetv2':
-        data_list = sorted(os.listdir(args.data_root_val))
-        data_list = [item[:-4] for item in data_list if '.pth' in item]
-    # ---------------------- 新增：my_dataset 分支 ----------------------
-    elif args.data_name == 'my_dataset':
-        # 读取 test_scenes.txt 划分文件（与训练集逻辑一致）
-        val_split_file = os.path.join(args.data_root, 'test_scenes.txt')
-        if not os.path.exists(val_split_file):
-            raise FileNotFoundError(f"my_dataset 测试集划分文件 {val_split_file} 不存在！")
-        # 加载样本路径列表（每行是 .npy 文件的相对路径，如 "merged/sample_1.npy"）
-        with open(val_split_file, 'r') as f:
-            data_list = [line.strip() for line in f.readlines()]
-        # 提取样本名称（去掉路径和后缀，用于后续保存预测结果，如 "sample_1"）
-        data_list = [os.path.splitext(os.path.basename(path))[0] for path in data_list]
-    # -------------------------------------------------------------------
-    else:
-        raise Exception('dataset {} not supported yet'.format(args.data_name))
-    print("Totally {} samples in val set.".format(len(data_list)))
-    return data_list
-
-
-def data_load(data_name, transform):
-    # data_name：从 data_prepare 传来的样本名称（如 "sample_1"）
-    # 需拼接回完整 .npy 路径（与 val_scenes.txt 中的路径一致）
-    if args.data_name == 's3dis':
-        data_path = os.path.join(args.data_root, data_name + '.npy')
-        data = np.load(data_path)  # xyzrgbl, N*7
-        coord, feat, label = data[:, :3], data[:, 3:6], data[:, 6]
-    elif args.data_name == 'scannetv2':
-        data_path = os.path.join(args.data_root_val, data_name + '.pth')
-        data = torch.load(data_path)  # xyzrgbl, N*7
-        coord, feat, label = data[0], data[1], data[2]
-    # ---------------------- 新增：my_dataset 分支 ----------------------
-    elif args.data_name == 'my_dataset':
-        # 1. 拼接完整数据路径（需与 val_scenes.txt 中的路径匹配）
-        # 示例：val_scenes.txt 中是 "merged/sample_1.npy"，则拼接为 args.data_root/merged/sample_1.npy
-        # 先从 val_scenes.txt 重新读取完整路径（避免 data_name 仅含文件名）
-        val_split_file = os.path.join(args.data_root, 'test_scenes.txt')
-        with open(val_split_file, 'r') as f:
-            full_paths = [line.strip() for line in f.readlines()]
-        # 根据 data_name（如 "sample_1"）找到对应的完整路径
-        data_path = None
-        for path in full_paths:
-            if data_name == os.path.splitext(os.path.basename(path))[0]:
-                data_path = os.path.join(args.data_root, path)
-                break
-        if data_path is None or not os.path.exists(data_path):
-            raise FileNotFoundError(f"未找到 my_dataset 样本 {data_name}，路径 {data_path} 无效！")
-
-        # 2. 加载 10 通道数据并提取维度
-        data = np.load(data_path)  # shape: [N, 10]（xyz3 + rgb3 + 法向量3 + label1）
-        coord = data[:, 0:3]  # 坐标：[N, 3]
-        feat = data[:, 3:9]  # 特征：[N, 6]（rgb3 + 法向量3）
-        label = data[:, 9]  # 标签：[N]（整数类型）
-    # -------------------------------------------------------------------
-
-    # # 数据增强（验证集增强如旋转，与训练集逻辑一致）
-    # if transform:
-    #     # 注意：需确保 transform 函数支持 6 维 feat（若增强仅影响 coord，可保持不变）
-    #     coord, feat = transform(coord, feat)
-
-    # 体素化（复用原有逻辑，与训练集 voxel_size 保持一致）
-    idx_data = []
-    if args.voxel_size:
-        coord_min = np.min(coord, 0)
-        coord -= coord_min
-        idx_sort, count = voxelize(coord, args.voxel_size, mode=1)
-        for i in range(count.max()):
-            idx_select = np.cumsum(np.insert(count, 0, 0)[0:-1]) + i % count
-            idx_part = idx_sort[idx_select]
-            idx_data.append(idx_part)
-    else:
-        idx_data.append(np.arange(label.shape[0]))
-    return coord, feat, label, idx_data
-
-
-# test.py #startLine: 232 #endLine: 247（修改后）
 def input_normalize(coord, feat):
-    # 坐标归一化（与训练一致：平移到原点）
+    """数据归一化，与训练时保持一致"""
+    # 坐标归一化：平移到原点
     coord_min = np.min(coord, 0)
     coord -= coord_min
 
-    # 特征归一化（与训练逻辑对齐）
-    if args.data_name == 's3dis':
-        feat = feat / 255.  # S3DIS 特征全为颜色，整体归一化
-    # 统一 my_dataset 归一化逻辑
-    elif args.data_name == 'my_dataset':
-        # 仅颜色通道（前3列）归一化，法向量（后3列）不处理
-        feat = feat.copy()  # 避免修改原数组
-        feat[:, 0:3] = feat[:, 0:3] / 255.0  # 颜色 0-255 → 0-1
-        # 法向量保持原始值，不做归一化
+    # 特征归一化
+    if args.data_name == 'my_dataset':
+        # 复制数据以避免修改原始数组
+        feat = feat.copy()
+        # 颜色通道(前3列)归一化到0-1
+        feat[:, 0:3] = feat[:, 0:3] / 255.0
+        # 法向量(后3列)保持不变
+    elif args.data_name == 's3dis':
+        # S3DIS数据集特征归一化
+        feat = feat / 255.
+
     return coord, feat
 
-def create_test_dataset(transform):
-    """创建测试数据集（复用MyDataset）"""
-    if args.data_name == 'my_dataset':
-        return MyDataset(
-            split='test',  # 对应test_scenes.txt
-            data_root=args.data_root,
-            transform=transform,  # 传入当前增强策略
-            voxel_size=args.voxel_size,  # 与训练保持一致
-            voxel_max=args.voxel_max,  # 与训练保持一致
-            shuffle_index=True,
-            loop=1  # 测试集仅遍历1次
-        )
-    else:
-        raise Exception(f'dataset {args.data_name} not supported yet')
 
+def test(model, criterion, class_names, test_dataset):
+    """测试函数，使用MyDataset加载数据"""
+    logger.info('>>>>>>>>>>>>>>>> 开始评估 >>>>>>>>>>>>>>>>')
 
-
-# test.py (不进行数据增强的版本)
-def test(model, criterion, names, test_transform = None):  # 修改参数，仅接收单一transform
-    logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
+    # 初始化指标计算器
     batch_time = AverageMeter()
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
     target_meter = AverageMeter()
-    args.batch_size_test = 1  # 点云数据通常单样本加载
+
+    # 设置模型为评估模式
     model.eval()
 
+    # 创建保存结果的文件夹
     check_makedirs(args.save_folder)
-    pred_save, label_save = [], []
 
-    # 1. 创建单一数据集（不使用数据增强，仅必要预处理）
-    dataset = create_test_dataset(test_transform)  # 单一数据集
-    sample_names = data_prepare()  # 复用该函数获取txt中的样本名称列表
-    total_samples = len(dataset)
-    logger.info(f"Totally {len(sample_names)} samples in test set.")
+    # 存储所有预测和标签
+    all_preds = []
+    all_labels = []
 
-    # 2. 遍历每个样本
+    # 获取样本名称列表
+    sample_names = test_dataset.get_sample_names()
+    total_samples = len(test_dataset)
+
+    logger.info(f"测试集样本总数: {total_samples}")
+
+    # 遍历每个样本
     for sample_idx in range(total_samples):
-        item = sample_names[sample_idx]
-        end = time.time()
-        pred_save_path = os.path.join(args.save_folder, f'{item}_{args.epoch}_pred.npy')
-        label_save_path = os.path.join(args.save_folder, f'{item}_{args.epoch}_label.npy')
+        sample_name = sample_names[sample_idx]
+        start_time = time.time()
 
-        if os.path.isfile(pred_save_path) and os.path.isfile(label_save_path):
-            logger.info(f'{sample_idx + 1}/{total_samples}: {item}, 已加载现有预测结果')
-            pred, label = np.load(pred_save_path), np.load(label_save_path)
+        # 结果保存路径
+        pred_save_path = os.path.join(args.save_folder, f'{sample_name}_pred.npy')
+        label_save_path = os.path.join(args.save_folder, f'{sample_name}_label.npy')
+
+        # 如果已经有预测结果，直接加载
+        if os.path.exists(pred_save_path) and os.path.exists(label_save_path):
+            logger.info(f'[{sample_idx + 1}/{total_samples}]: {sample_name}, 已加载现有预测结果')
+            pred = np.load(pred_save_path)
+            label = np.load(label_save_path)
         else:
-            # 3. 直接加载原始数据（不进行增强）
-            coord, feat, label = dataset[sample_idx]  # 调用MyDataset的__getitem__
-            label = label.type(torch.int64)  # Tensor类型转换
+            # 从数据加载器获取数据
+            coord, feat, label = test_dataset[sample_idx]
+            label = label.numpy()  # 转换为numpy数组
 
-            # 4. 处理点云分块（如果需要，根据voxel_max拆分）
+            # 数据归一化
+            coord, feat = input_normalize(coord, feat)
+
+            # 处理点云分块（如果点云过大）
             idx_data = []
             if args.voxel_max and coord.shape[0] > args.voxel_max:
-                # 随机分块（保持与原有逻辑一致）
+                # 随机分块处理
                 coord_p = np.random.rand(coord.shape[0]) * 1e-3
                 idx_uni = np.array([])
                 while idx_uni.size < coord.shape[0]:
@@ -309,9 +228,10 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
             else:
                 idx_data.append(np.arange(coord.shape[0]))
 
-            # 5. 模型推理
+            # 模型推理
             pred = np.zeros((label.shape[0], args.classes), dtype=np.float32)
             for idx_part in idx_data:
+                # 获取点云子集
                 coord_part = coord[idx_part]
                 feat_part = feat[idx_part]
 
@@ -321,7 +241,7 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
                 offset_part = torch.IntTensor([len(coord_part)]).cuda(non_blocking=True)
                 batch = torch.zeros(len(coord_part), dtype=torch.long).cuda(non_blocking=True)
 
-                # 计算邻域（与原有逻辑一致）
+                # 计算邻域
                 sigma = 1.0
                 radius = 2.5 * args.grid_size * sigma
                 neighbor_idx = tp.ball_query(
@@ -331,7 +251,7 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
                     batch_x=batch, batch_y=batch
                 )[0].cuda(non_blocking=True)
 
-                # 拼接坐标（如果需要）
+                # 如果需要拼接坐标信息
                 if args.concat_xyz:
                     feat_part = torch.cat([feat_part, coord_part], dim=1)
 
@@ -340,17 +260,18 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
                     pred_part = model(feat_part, coord_part, offset_part, batch, neighbor_idx)
                     pred_part = F.softmax(pred_part, dim=-1).cpu().numpy()
 
+                # 累加预测结果
                 pred[idx_part] += pred_part
-                torch.cuda.empty_cache()
+                torch.cuda.empty_cache()  # 清理GPU缓存
 
-            # 无需增强结果融合，直接使用原始预测
-            loss = criterion(
-                torch.FloatTensor(pred).cuda(),
-                torch.LongTensor(label).cuda(non_blocking=True)
-            )  # 参考损失
-            pred = pred.argmax(1)  # 取概率最大的类别
+            # 获取最终预测类别
+            pred = pred.argmax(1)
 
-        # 6. 计算指标
+            # 保存预测结果
+            np.save(pred_save_path, pred)
+            np.save(label_save_path, label)
+
+        # 计算评估指标
         intersection, union, target = intersectionAndUnion(
             pred, label, args.classes, args.ignore_label
         )
@@ -358,71 +279,79 @@ def test(model, criterion, names, test_transform = None):  # 修改参数，仅�
         union_meter.update(union)
         target_meter.update(target)
 
+        # 计算准确率
         accuracy = sum(intersection) / (sum(target) + 1e-10)
-        batch_time.update(time.time() - end)
+        batch_time.update(time.time() - start_time)
+
         logger.info(
-            f'Test: [{sample_idx + 1}/{total_samples}]-{label.size} '
-            f'Batch {batch_time.val:.3f} ({batch_time.avg:.3f}) '
-            f'Accuracy {accuracy:.4f}.'
+            f'测试进度: [{sample_idx + 1}/{total_samples}]-{label.size}个点 '
+            f'耗时 {batch_time.val:.3f}s (平均 {batch_time.avg:.3f}s) '
+            f'准确率 {accuracy:.4f}'
         )
 
-        # 7. 保存结果
-        pred_save.append(pred)
-        label_save.append(label)
-        if not os.path.isfile(pred_save_path):
-            np.save(pred_save_path, pred)
-        if not os.path.isfile(label_save_path):
-            np.save(label_save_path, label)
+        # 保存所有预测和标签
+        all_preds.append(pred)
+        all_labels.append(label)
 
-    # 8. 计算整体指标
+    # 保存所有预测和标签的汇总
     if not os.path.exists(os.path.join(args.save_folder, "pred.pickle")):
         with open(os.path.join(args.save_folder, "pred.pickle"), 'wb') as handle:
-            pickle.dump({'pred': pred_save}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump({'pred': all_preds}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     if not os.path.exists(os.path.join(args.save_folder, "label.pickle")):
         with open(os.path.join(args.save_folder, "label.pickle"), 'wb') as handle:
-            pickle.dump({'label': label_save}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump({'label': all_labels}, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # 计算指标（与原有逻辑一致）
+    # 计算整体评估指标
     iou_class = intersection_meter.sum / (union_meter.sum + 1e-10)
     accuracy_class = intersection_meter.sum / (target_meter.sum + 1e-10)
     mIoU1 = np.mean(iou_class)
     mAcc1 = np.mean(accuracy_class)
     allAcc1 = sum(intersection_meter.sum) / (sum(target_meter.sum) + 1e-10)
 
+    # 合并所有预测和标签计算指标
+    combined_pred = np.concatenate(all_preds)
+    combined_label = np.concatenate(all_labels)
     intersection, union, target = intersectionAndUnion(
-        np.concatenate(pred_save), np.concatenate(label_save),
-        args.classes, args.ignore_label
+        combined_pred, combined_label, args.classes, args.ignore_label
     )
+
     iou_class = intersection / (union + 1e-10)
     accuracy_class = intersection / (target + 1e-10)
     mIoU = np.mean(iou_class)
     mAcc = np.mean(accuracy_class)
     allAcc = sum(intersection) / (sum(target) + 1e-10)
 
-    logger.info('Val result: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(mIoU, mAcc, allAcc))
-    logger.info('Val1 result: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(mIoU1, mAcc1, allAcc1))
+    # 输出评估结果
+    logger.info(f'验证结果: mIoU/mAcc/allAcc {mIoU:.4f}/{mAcc:.4f}/{allAcc:.4f}')
+    logger.info(f'验证结果1: mIoU/mAcc/allAcc {mIoU1:.4f}/{mAcc1:.4f}/{allAcc1:.4f}')
 
+    # 输出每个类别的评估结果
     for i in range(args.classes):
-        logger.info('Class_{} Result: iou/accuracy {:.4f}/{:.4f}, name: {}.'.format(i, iou_class[i], accuracy_class[i],
-                                                                                    names[i]))
-        # 新增：保存测试指标到CSV
-        test_csv_path = os.path.join(args.save_folder, 'test_metrics.csv')
-        with open(test_csv_path, 'w', newline='') as f:
-            csv_writer = csv.writer(f)
-            # 表头：整体指标 + 每类iou + 每类acc + 每类名称
-            header = ['mIoU', 'mAcc', 'allAcc']
-            for i in range(args.classes):
-                header.extend([f'class_{i}_iou', f'class_{i}_acc', f'class_{i}_name'])
-            csv_writer.writerow(header)
+        logger.info(
+            f'类别_{i} 结果: iou/accuracy {iou_class[i]:.4f}/{accuracy_class[i]:.4f}, '
+            f'名称: {class_names[i]}'
+        )
 
-            # 行数据：整体指标 + 每类iou + 每类acc + 每类名称
-            row = [mIoU, mAcc, allAcc]
-            for i in range(args.classes):
-                row.append(iou_class[i])
-                row.append(accuracy_class[i])
-                row.append(names[i] if i < len(names) else f'class_{i}')  # 类别名称
-            csv_writer.writerow(row)
-    logger.info('<<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<')
+    # 保存评估指标到CSV文件
+    metrics_csv_path = os.path.join(args.save_folder, 'test_metrics.csv')
+    with open(metrics_csv_path, 'w', newline='', encoding='utf-8') as f:
+        csv_writer = csv.writer(f)
+        # 表头
+        header = ['mIoU', 'mAcc', 'allAcc']
+        for i in range(args.classes):
+            header.extend([f'class_{i}_iou', f'class_{i}_acc', f'class_{i}_name'])
+        csv_writer.writerow(header)
+
+        # 数据行
+        row = [mIoU, mAcc, allAcc]
+        for i in range(args.classes):
+            row.append(iou_class[i])
+            row.append(accuracy_class[i])
+            row.append(class_names[i])
+        csv_writer.writerow(row)
+
+    logger.info('<<<<<<<<<<<<<<<<< 评估结束 <<<<<<<<<<<<<<<<<')
 
 
 if __name__ == '__main__':
