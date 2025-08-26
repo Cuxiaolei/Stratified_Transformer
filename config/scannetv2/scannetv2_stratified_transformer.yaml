@@ -81,6 +81,6 @@ TEST:
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 1
-  model_path: runs/sacnnetv2_stratified_transformer/model/model_last.pth
+  model_path: runs/sacnnetv2_stratified_transformer/model/model_best.pth
   save_folder: runs/sacnnetv2_stratified_transformer/results
 
