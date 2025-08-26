@@ -174,8 +174,6 @@ def main():
         voxel_max=args.voxel_max,
         shuffle_index=False,  # 测试时不打乱索引
         loop=1,
-        # 假设MyDataset有一个参数用于指定是否通过文件夹加载
-        load_by_folder=True  # 新增参数：告诉数据加载器通过文件夹加载
     )
 
     # 获取样本名称列表（场景文件夹名称）
