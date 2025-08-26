@@ -1,7 +1,7 @@
 DATA:
   data_name: my_dataset
-  data_root: "/root/autodl-tmp/data/data_scannet_tower"
-  data_root_val: "/root/autodl-tmp/data/data_scannet_tower"
+  data_root: "/root/autodl-tmp/data/data_s3dis_normal"
+  data_root_val: "/root/autodl-tmp/data/data_s3dis_normal"
   classes: 3
   fea_dim: 6
   in_channels: 6
@@ -80,7 +80,7 @@ TEST:
   split: val  # split in [train, val and test]
   test_gpu: [0]
   test_workers: 4
-  batch_size_test: 4
+  batch_size_test: 1
   model_path: runs/s3dis_stratified_transformer/model/model_last.pth
   save_folder: runs/s3dis_stratified_transformer/results
 
