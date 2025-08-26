@@ -1,5 +1,5 @@
 DATA:
-  data_name: scannetv2
+  data_name: my_dataset
   data_root: "/root/autodl-tmp/data/data_scannet_tower"
   data_root_val: "/root/autodl-tmp/data/data_scannet_tower"
   classes: 3
