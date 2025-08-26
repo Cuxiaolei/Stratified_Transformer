@@ -14,7 +14,7 @@ DATA:
 TRAIN:
   # arch
   arch: swin3d_transformer
-  stem_transformer: False
+  stem_transformer: True
   use_xyz: True
   sync_bn: True  # adopt sync_bn or not
   rel_query: True
