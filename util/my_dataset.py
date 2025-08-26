@@ -9,6 +9,11 @@ class MyDataset(Dataset):
     def __init__(self, split='train', data_root=None, transform=None,
                  voxel_size=0.04, voxel_max=None, shuffle_index=True, loop=1):
         super().__init__()
+        # 新增：打印实际访问的split目录路径
+        split_dir = os.path.join(data_root, split)
+        print(f"正在查找 {split} 数据的目录: {split_dir}")  # 关键日志
+        if not os.path.isdir(split_dir):
+            raise NotADirectoryError(f"划分目录 {split_dir} 不存在")
         self.split = split
         self.data_root = data_root  # 数据集根目录（包含train/val/test文件夹）
         self.transform = transform  # 数据增强
