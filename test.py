@@ -188,7 +188,13 @@ def main():
 
 
 def input_normalize(coord, feat):
-    """数据归一化，与训练时保持一致"""
+    """数据归一化，与训练时保持一致（使用PyTorch张量操作）"""
+    # 检查是否为PyTorch张量，若是则转换为numpy数组处理
+    if isinstance(coord, torch.Tensor):
+        coord = coord.numpy()
+    if isinstance(feat, torch.Tensor):
+        feat = feat.numpy()
+
     # 坐标归一化：平移到原点
     coord_min = np.min(coord, 0)
     coord -= coord_min
@@ -246,8 +252,13 @@ def test(model, criterion, class_names, test_dataset, sample_names):
             label = np.load(label_save_path)
         else:
             # 从数据加载器获取该场景的数据
-            coord, feat, label = test_dataset[sample_idx]
-            label = label.numpy()  # 转换为numpy数组
+            # 注意：根据MyDataset的返回格式调整，这里假设返回的是(coord, feat, label)且均为numpy数组
+            data = test_dataset[sample_idx]
+            coord, feat, label = data['pos'], data['x'], data['y']
+
+            # 确保label是numpy数组
+            if isinstance(label, torch.Tensor):
+                label = label.numpy()
 
             # 数据归一化
             coord, feat = input_normalize(coord, feat)
