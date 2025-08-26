@@ -64,44 +64,59 @@ class MyDataset(Dataset):
         # 组合特征（颜色 + 法向量）
         feat = np.concatenate([color, normal], axis=1)  # (N, 6)
 
-        # 数据预处理（体素化、裁剪、增强等，复用现有工具）
-        coord, feat, label = data_prepare(
-            coord=coord,
-            feat=feat,
-            label=label,
-            split=self.split,
-            voxel_size=self.voxel_size,
-            voxel_max=self.voxel_max,
-            transform=self.transform,
-            shuffle_index=self.shuffle_index
-        )
+        # 核心修改：根据split控制是否下采样
+        # 测试时(split='test')不进行下采样，训练和验证时正常处理
+        if self.split == 'test':
+            # 测试模式：仅进行必要的预处理，跳过下采样
+            processed_coord, processed_feat, processed_label = data_prepare(
+                coord=coord,
+                feat=feat,
+                label=label,
+                split=self.split,
+                voxel_size=self.voxel_size,
+                voxel_max=None,  # 强制禁用下采样
+                transform=None,  # 测试时不使用数据增强
+                shuffle_index=False  # 测试时保持点顺序
+            )
+        else:
+            # 训练/验证模式：正常进行下采样和数据增强
+            processed_coord, processed_feat, processed_label = data_prepare(
+                coord=coord,
+                feat=feat,
+                label=label,
+                split=self.split,
+                voxel_size=self.voxel_size,
+                voxel_max=self.voxel_max,  # 使用指定的下采样阈值
+                transform=self.transform,
+                shuffle_index=self.shuffle_index
+            )
 
         # 处理特征数据
-        if isinstance(feat, np.ndarray):
-            feat = feat.astype(np.float32)  # NumPy数组用astype
-        elif isinstance(feat, torch.Tensor):
-            feat = feat.type(torch.float32)  # Tensor用type
+        if isinstance(processed_feat, np.ndarray):
+            processed_feat = processed_feat.astype(np.float32)
+        elif isinstance(processed_feat, torch.Tensor):
+            processed_feat = processed_feat.type(torch.float32)
         else:
-            raise TypeError(f"不支持的特征数据类型: {type(feat)}")
+            raise TypeError(f"不支持的特征数据类型: {type(processed_feat)}")
 
         # 处理坐标数据
-        if isinstance(coord, np.ndarray):
-            coord = coord.astype(np.float32)  # NumPy数组用astype
-        elif isinstance(coord, torch.Tensor):
-            coord = coord.type(torch.float32)  # Tensor用type
+        if isinstance(processed_coord, np.ndarray):
+            processed_coord = processed_coord.astype(np.float32)
+        elif isinstance(processed_coord, torch.Tensor):
+            processed_coord = processed_coord.type(torch.float32)
         else:
-            raise TypeError(f"不支持的坐标数据类型: {type(coord)}")
+            raise TypeError(f"不支持的坐标数据类型: {type(processed_coord)}")
 
         # 转换为Tensor（如果还不是的话）
-        if isinstance(coord, np.ndarray):
-            coord = torch.from_numpy(coord).float()
-        if isinstance(feat, np.ndarray):
-            feat = torch.from_numpy(feat).float()
-        if isinstance(label, np.ndarray):
-            label = torch.from_numpy(label).long()
+        if isinstance(processed_coord, np.ndarray):
+            processed_coord = torch.from_numpy(processed_coord).float()
+        if isinstance(processed_feat, np.ndarray):
+            processed_feat = torch.from_numpy(processed_feat).float()
+        if isinstance(processed_label, np.ndarray):
+            processed_label = torch.from_numpy(processed_label).long()
 
-        print(f"feat shape before model: {feat.shape}")  # 确保最后一维是固定值（如6或3）
-        return coord, feat, label
+        print(f"feat shape before model: {processed_feat.shape}")
+        return processed_coord, processed_feat, processed_label
 
     def __len__(self):
         return len(self.scene_dirs) * self.loop
