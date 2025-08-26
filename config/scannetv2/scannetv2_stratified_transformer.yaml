@@ -64,7 +64,7 @@ TRAIN:
   manual_seed: 123
   print_freq: 1
   save_freq: 1
-  save_path: runs/s3dis_stratified_transformer
+  save_path: runs/sacnnetv2_swin3d_transformer
   weight:  # path to initial weight (default: none)
   resume:  # path to latest checkpoint (default: none)
   evaluate: True  # evaluate on validation set, extra gpu memory needed and small batch_size_val is recommend
@@ -81,6 +81,6 @@ TEST:
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 1
-  model_path: runs/s3dis_stratified_transformer/model/model_last.pth
-  save_folder: runs/s3dis_stratified_transformer/results
+  model_path: runs/sacnnetv2_swin3d_transformer/model/model_last.pth
+  save_folder: runs/sacnnetv2_swin3d_transformer/results
 
