@@ -8,7 +8,7 @@ DATA:
   voxel_size: 0.04
   voxel_max: 80000
   shuffle: True
-  loop: 2
+  loop: 1
 
 TRAIN:
   #arch
@@ -30,7 +30,7 @@ TRAIN:
   drop_path_rate: 0.3
   concat_xyz: False
   grid_size: 0.04
-  max_batch_points: 640000
+  max_batch_points: 240000
   max_num_neighbors: 34 # For KPConv
   ratio: 0.25
   k: 16
