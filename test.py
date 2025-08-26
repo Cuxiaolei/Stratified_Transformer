@@ -54,6 +54,32 @@ def get_logger():
     return logger
 
 
+def data_prepare():
+    """恢复原代码中的样本名称获取逻辑"""
+    if args.data_name == 's3dis':
+        data_list = sorted(os.listdir(args.data_root))
+        data_list = [item[:-4] for item in data_list if 'Area_{}'.format(args.test_area) in item]
+    elif args.data_name == 'scannetv2':
+        data_list = sorted(os.listdir(args.data_root_val))
+        data_list = [item[:-4] for item in data_list if '.pth' in item]
+    # 针对my_dataset的处理逻辑
+    elif args.data_name == 'my_dataset':
+        # 读取test_scenes.txt划分文件
+        val_split_file = os.path.join(args.data_root, 'test_scenes.txt')
+        if not os.path.exists(val_split_file):
+            raise FileNotFoundError(f"my_dataset测试集划分文件 {val_split_file} 不存在！")
+        # 加载样本路径列表
+        with open(val_split_file, 'r') as f:
+            data_list = [line.strip() for line in f.readlines()]
+        # 提取样本名称（去掉路径和后缀）
+        data_list = [os.path.splitext(os.path.basename(path))[0] for path in data_list]
+    else:
+        raise Exception(f'数据集 {args.data_name} 不支持')
+
+    print(f"测试集样本总数: {len(data_list)}")
+    return data_list
+
+
 def main():
     global args, logger
     args = get_parser()
@@ -130,7 +156,7 @@ def main():
     else:
         raise RuntimeError(f"=> 未找到模型 checkpoint '{args.model_path}'")
 
-    # 创建测试数据集和数据加载器
+    # 创建测试数据集
     test_dataset = MyDataset(
         split='test',
         data_root=args.data_root,
@@ -141,8 +167,11 @@ def main():
         loop=1
     )
 
+    # 获取样本名称列表（使用原代码的data_prepare方法）
+    sample_names = data_prepare()
+
     # 测试
-    test(model, criterion, class_names, test_dataset)
+    test(model, criterion, class_names, test_dataset, sample_names)
 
 
 def input_normalize(coord, feat):
@@ -165,8 +194,8 @@ def input_normalize(coord, feat):
     return coord, feat
 
 
-def test(model, criterion, class_names, test_dataset):
-    """测试函数，使用MyDataset加载数据"""
+def test(model, criterion, class_names, test_dataset, sample_names):
+    """测试函数，使用data_prepare获取的样本名称"""
     logger.info('>>>>>>>>>>>>>>>> 开始评估 >>>>>>>>>>>>>>>>')
 
     # 初始化指标计算器
@@ -185,10 +214,7 @@ def test(model, criterion, class_names, test_dataset):
     all_preds = []
     all_labels = []
 
-    # 获取样本名称列表
-    sample_names = test_dataset.get_sample_names()
     total_samples = len(test_dataset)
-
     logger.info(f"测试集样本总数: {total_samples}")
 
     # 遍历每个样本
