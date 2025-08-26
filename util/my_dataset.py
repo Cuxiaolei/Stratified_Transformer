@@ -100,6 +100,7 @@ class MyDataset(Dataset):
         if isinstance(label, np.ndarray):
             label = torch.from_numpy(label).long()
 
+        print(f"feat shape before model: {feat.shape}")  # 确保最后一维是固定值（如6或3）
         return coord, feat, label
 
     def __len__(self):
