@@ -1,11 +1,14 @@
 DATA:
   data_name: scannetv2
-  data_root: # Fill in the pre-processed data path (which contains the 'train', 'val', 'test' directories)
-  classes: 20
+  data_root: "/root/autodl-tmp/data/data_s3dis_normal"
+  data_root_val: "/root/autodl-tmp/data/data_s3dis_normal"
+  classes: 3
   fea_dim: 6
-  voxel_size: 0.02 
-  voxel_max: 120000 
-  loop: 6 
+  in_channels: 6
+  voxel_size: 0.04
+  voxel_max: 80000
+  shuffle: True
+  loop: 2
 
 TRAIN:
   # arch
@@ -45,8 +48,8 @@ TRAIN:
   optimizer: AdamW #SGD
   train_gpu: [0, 1, 2, 3] 
   workers: 16  # data loader workers
-  batch_size: 8 # batch size for training
-  batch_size_val: 4 # batch size for validation during training, memory and speed tradeoff
+  batch_size: 3 # batch size for training
+  batch_size_val: 1 # batch size for validation during training, memory and speed tradeoff
   base_lr: 0.006
   epochs: 100
   start_epoch: 0
@@ -73,11 +76,9 @@ Distributed:
   rank: 0
 
 TEST:
-  data_root_val: # Fill the path that contains the scenes of the validation set (e.g., "[YOUR PATH]/val")
-  split: val  # split in [train, val and test]
+  split: test
   test_gpu: [0]
   test_workers: 4
-  batch_size_test: 4
-  model_path: # Fill the path of the trained .pth file model
-  save_folder: # Fill the path to store the .npy files for each scene
-  names_path: data/scannet/scannet_names.txt
+  batch_size_test: 1
+  model_path: runs/sacnnetv2_stratified_transformer/model/model_last.pth
+  save_folder: runs/sacnnetv2_stratified_transformer/results

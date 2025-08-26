@@ -1,15 +1,11 @@
 DATA:
   data_name: scannetv2
-  data_root: "/root/autodl-tmp/data/data_s3dis_normal"
-  data_root_val: "/root/autodl-tmp/data/data_s3dis_normal"
-  classes: 3
+  data_root: # Fill in the pre-processed data path (which contains the 'train', 'val', 'test' directories)
+  classes: 20
   fea_dim: 6
-  in_channels: 6
-  voxel_size: 0.04
-  voxel_max: 80000
-  shuffle: True
-  loop: 2
-
+  voxel_size: 0.02 
+  voxel_max: 120000 
+  loop: 6 
 
 TRAIN:
   # arch
@@ -29,9 +25,9 @@ TRAIN:
   num_heads: [3, 6, 12, 24, 24]
   up_k: 3
   drop_path_rate: 0.3
-  concat_xyz: False
+  concat_xyz: True
   grid_size: 0.02
-  max_batch_points: 640000
+  max_batch_points: 250000
   max_num_neighbors: 34 # For KPConv
   ratio: 0.25
   k: 16
@@ -76,9 +72,13 @@ Distributed:
   rank: 0
 
 TEST:
-  split: test  # split in [train, val and test]
+  data_root_val: # Fill the path that contains the scenes of the validation set (e.g., "[YOUR PATH]/val")
+  test_list: 
+  test_list_full: 
+  split: val  # split in [train, val and test]
   test_gpu: [0]
   test_workers: 4
   batch_size_test: 4
-  model_path: runs/sacnnetv2_swin3d_transformer/model/model_last.pth
-  save_folder: runs/sacnnetv2_swin3d_transformer/results
+  model_path: # Fill the path of the trained .pth file model
+  save_folder: # Fill the path to store the .npy files for each scene
+  names_path: data/scannet/scannet_names.txt
