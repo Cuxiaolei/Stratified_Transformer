@@ -14,7 +14,6 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 import torch_points_kernels as tp
 
@@ -55,28 +54,38 @@ def get_logger():
 
 
 def data_prepare():
-    """恢复原代码中的样本名称获取逻辑"""
+    """修改为直接识别test文件夹下的场景文件夹"""
     if args.data_name == 's3dis':
         data_list = sorted(os.listdir(args.data_root))
         data_list = [item[:-4] for item in data_list if 'Area_{}'.format(args.test_area) in item]
     elif args.data_name == 'scannetv2':
         data_list = sorted(os.listdir(args.data_root_val))
         data_list = [item[:-4] for item in data_list if '.pth' in item]
-    # 针对my_dataset的处理逻辑
+    # 针对my_dataset的处理逻辑：直接识别test文件夹下的场景文件夹
     elif args.data_name == 'my_dataset':
-        # 读取test_scenes.txt划分文件
-        val_split_file = os.path.join(args.data_root, 'test_scenes.txt')
-        if not os.path.exists(val_split_file):
-            raise FileNotFoundError(f"my_dataset测试集划分文件 {val_split_file} 不存在！")
-        # 加载样本路径列表
-        with open(val_split_file, 'r') as f:
-            data_list = [line.strip() for line in f.readlines()]
-        # 提取样本名称（去掉路径和后缀）
-        data_list = [os.path.splitext(os.path.basename(path))[0] for path in data_list]
+        # 测试数据根目录应为包含场景文件夹的test文件夹
+        test_root = args.data_root if args.data_root.endswith('test') else os.path.join(args.data_root, 'test')
+
+        # 验证test文件夹是否存在
+        if not os.path.isdir(test_root):
+            raise NotADirectoryError(f"my_dataset测试文件夹 {test_root} 不存在！")
+
+        # 获取test文件夹下的所有场景文件夹
+        data_list = []
+        for item in sorted(os.listdir(test_root)):
+            item_path = os.path.join(test_root, item)
+            # 只考虑文件夹（场景）
+            if os.path.isdir(item_path):
+                data_list.append(item)
+
+        # 验证是否找到场景文件夹
+        if not data_list:
+            raise Exception(f"在 {test_root} 下未找到任何场景文件夹！")
+
+        print(f"测试集场景文件夹总数: {len(data_list)}")
     else:
         raise Exception(f'数据集 {args.data_name} 不支持')
 
-    print(f"测试集样本总数: {len(data_list)}")
     return data_list
 
 
@@ -156,7 +165,7 @@ def main():
     else:
         raise RuntimeError(f"=> 未找到模型 checkpoint '{args.model_path}'")
 
-    # 创建测试数据集
+    # 创建测试数据集（确保数据加载器使用文件夹识别模式）
     test_dataset = MyDataset(
         split='test',
         data_root=args.data_root,
@@ -164,11 +173,17 @@ def main():
         voxel_size=args.voxel_size,
         voxel_max=args.voxel_max,
         shuffle_index=False,  # 测试时不打乱索引
-        loop=1
+        loop=1,
+        # 假设MyDataset有一个参数用于指定是否通过文件夹加载
+        load_by_folder=True  # 新增参数：告诉数据加载器通过文件夹加载
     )
 
-    # 获取样本名称列表（使用原代码的data_prepare方法）
+    # 获取样本名称列表（场景文件夹名称）
     sample_names = data_prepare()
+
+    # 验证数据加载器加载的样本数与场景文件夹数是否一致
+    if len(test_dataset) != len(sample_names):
+        logger.warning(f"数据加载器样本数({len(test_dataset)})与场景文件夹数({len(sample_names)})不匹配")
 
     # 测试
     test(model, criterion, class_names, test_dataset, sample_names)
@@ -195,7 +210,7 @@ def input_normalize(coord, feat):
 
 
 def test(model, criterion, class_names, test_dataset, sample_names):
-    """测试函数，使用data_prepare获取的样本名称"""
+    """测试函数，使用场景文件夹名称作为样本名称"""
     logger.info('>>>>>>>>>>>>>>>> 开始评估 >>>>>>>>>>>>>>>>')
 
     # 初始化指标计算器
@@ -217,22 +232,22 @@ def test(model, criterion, class_names, test_dataset, sample_names):
     total_samples = len(test_dataset)
     logger.info(f"测试集样本总数: {total_samples}")
 
-    # 遍历每个样本
+    # 遍历每个场景文件夹
     for sample_idx in range(total_samples):
-        sample_name = sample_names[sample_idx]
+        scene_name = sample_names[sample_idx]  # 使用场景文件夹名称
         start_time = time.time()
 
-        # 结果保存路径
-        pred_save_path = os.path.join(args.save_folder, f'{sample_name}_pred.npy')
-        label_save_path = os.path.join(args.save_folder, f'{sample_name}_label.npy')
+        # 结果保存路径（使用场景文件夹名称）
+        pred_save_path = os.path.join(args.save_folder, f'{scene_name}_pred.npy')
+        label_save_path = os.path.join(args.save_folder, f'{scene_name}_label.npy')
 
         # 如果已经有预测结果，直接加载
         if os.path.exists(pred_save_path) and os.path.exists(label_save_path):
-            logger.info(f'[{sample_idx + 1}/{total_samples}]: {sample_name}, 已加载现有预测结果')
+            logger.info(f'[{sample_idx + 1}/{total_samples}]: 场景 {scene_name}, 已加载现有预测结果')
             pred = np.load(pred_save_path)
             label = np.load(label_save_path)
         else:
-            # 从数据加载器获取数据
+            # 从数据加载器获取该场景的数据
             coord, feat, label = test_dataset[sample_idx]
             label = label.numpy()  # 转换为numpy数组
 
@@ -310,7 +325,7 @@ def test(model, criterion, class_names, test_dataset, sample_names):
         batch_time.update(time.time() - start_time)
 
         logger.info(
-            f'测试进度: [{sample_idx + 1}/{total_samples}]-{label.size}个点 '
+            f'测试进度: [{sample_idx + 1}/{total_samples}]-场景 {scene_name} ({label.size}个点) '
             f'耗时 {batch_time.val:.3f}s (平均 {batch_time.avg:.3f}s) '
             f'准确率 {accuracy:.4f}'
         )
